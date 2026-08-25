@@ -1,0 +1,4 @@
+Atlas keeps closed support tickets for 24 months. Customers may request an export
+from the support portal before the retention period ends. Audit logs are retained
+for 12 months and are available only to account administrators.
+

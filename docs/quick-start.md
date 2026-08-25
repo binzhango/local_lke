@@ -1,0 +1,114 @@
+# Chapter 1 Quick Start
+
+## Automated foundation setup
+
+From a clean checkout, run:
+
+```bash
+./scripts/init_environment.sh
+```
+
+This script is safe to run again. It requires `uv`, ensures Python 3.12 exists,
+runs `uv sync --locked`, creates `.env` only when it is missing, and executes a
+deterministic RAG doctor check. The check uses fake local providers and therefore
+does not contact the internet or require a model server.
+
+If `uv` is not installed, follow the official instructions at
+<https://docs.astral.sh/uv/getting-started/installation/> and rerun the script.
+
+## LM Studio
+
+1. Install LM Studio and download an instruction-tuned model that fits your
+   machine.
+2. Load the model.
+3. Open **Developer → Local Server** and start the OpenAI-compatible server. The
+   common default is `http://127.0.0.1:1234/v1`.
+4. Open `http://127.0.0.1:1234/v1/models` and copy the exact model `id`.
+5. Update `.env`:
+
+```dotenv
+LKE_CHAT_BASE_URL=http://127.0.0.1:1234/v1
+LKE_CHAT_MODEL=the-exact-loaded-model-id
+LKE_CHAT_API_KEY=lm-studio
+```
+
+6. Verify all providers and start the workbench:
+
+```bash
+make doctor
+make serve
+```
+
+`make doctor` checks the models endpoint, sends a minimal completion, and
+initializes the local embedding model. The first embedding initialization may
+download `sentence-transformers/all-MiniLM-L6-v2`; later runs use the local cache.
+
+## Serving an Unsloth GGUF
+
+An Unsloth-exported GGUF is a model file, not a server by itself. Use either of
+these local OpenAI-compatible options:
+
+- Import the GGUF into LM Studio, load it, and use the LM Studio steps above.
+- Start llama.cpp's `llama-server` with your GGUF and an explicit model alias:
+
+```bash
+llama-server \
+  --model /absolute/path/to/model.gguf \
+  --alias local-unsloth \
+  --host 127.0.0.1 \
+  --port 8080
+```
+
+Then configure:
+
+```dotenv
+LKE_CHAT_BASE_URL=http://127.0.0.1:8080/v1
+LKE_CHAT_MODEL=local-unsloth
+LKE_CHAT_API_KEY=local
+```
+
+Do not bind a model server to `0.0.0.0` unless you intentionally configure
+network access and authentication. Local LKE also defaults to `127.0.0.1`.
+
+## Tests and contracts
+
+The normal suite cannot open network sockets:
+
+```bash
+make check
+```
+
+To opt into the real provider smoke test after starting your server:
+
+```bash
+LKE_RUN_LIVE_TESTS=1 make test-live
+```
+
+Export the current OpenAPI contract for inspection:
+
+```bash
+uv run lke openapi
+```
+
+The generated `.artifacts/openapi.json` is a local build artifact and is ignored
+by Git.
+
+## Troubleshooting
+
+### The configured model is not loaded
+
+Use the exact `id` returned by `/v1/models`. Display names and filenames are not
+always the same as the API model ID.
+
+### The local server cannot be reached
+
+Confirm the server is running, its port matches `LKE_CHAT_BASE_URL`, and the URL
+ends in `/v1`. `make doctor` reports the failing component without exposing the
+API key.
+
+### Embedding initialization fails
+
+The default embedding model must be downloaded once. Ensure you have network
+access for that first initialization, or point `LKE_EMBEDDING_MODEL` to an
+already-cached sentence-transformers model.
+
