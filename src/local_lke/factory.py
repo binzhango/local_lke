@@ -38,6 +38,8 @@ def create_pipeline(settings: Settings) -> RAGPipeline:
             query_prefix=settings.embedding_query_prefix,
         ),
         default_top_k=settings.default_top_k,
+        generation_max_repair_attempts=settings.generation_max_repair_attempts,
+        generation_native_structured_output=settings.generation_native_structured_output,
     )
 
 
@@ -69,6 +71,7 @@ def create_retrieval_services(
         reranker=reranker,
         metadata_planner=MetadataPlanParser(pipeline.chat),
         indexing=indexing,
+        generation=pipeline.generation,
     )
     structured = StructuredDataService(
         repository,

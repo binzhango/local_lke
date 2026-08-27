@@ -63,6 +63,40 @@ def test_openapi_contains_query_contract(client: TestClient) -> None:
 
     assert "/api/v1/query" in contract["paths"]
     assert "AnswerResponse" in contract["components"]["schemas"]
+    query_schema = contract["components"]["schemas"]["QueryRequest"]
+    assert "output_mode" in query_schema["properties"]
+    assert "schema_name" in query_schema["properties"]
+
+
+def test_query_supports_validated_structured_and_evidence_only_modes(
+    client: TestClient,
+) -> None:
+    structured = client.post(
+        "/api/v1/query",
+        json={
+            "question": QUESTION,
+            "top_k": 1,
+            "output_mode": "structured",
+            "schema_name": "fact_list",
+        },
+    )
+    evidence = client.post(
+        "/api/v1/query",
+        json={"question": QUESTION, "top_k": 1, "output_mode": "evidence_only"},
+    )
+
+    assert structured.status_code == 200
+    structured_payload = structured.json()
+    assert structured_payload["structured_result"]["schema_name"] == "fact_list"
+    assert structured_payload["structured_result"]["facts"][0]["citation_ids"] == ["C1"]
+    assert structured_payload["trace"]["generation"]["model_output_committed"] is True
+    assert evidence.status_code == 200
+    evidence_payload = evidence.json()
+    assert evidence_payload["structured_result"] is None
+    assert evidence_payload["trace"]["generation"]["attempts"] == 0
+    assert evidence_payload["warnings"] == [
+        "Evidence-only mode bypassed model synthesis."
+    ]
 
 
 def test_collection_upload_job_preview_and_version_history(client: TestClient) -> None:

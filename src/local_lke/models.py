@@ -2,8 +2,8 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
-from uuid import UUID
+from typing import Annotated, Literal
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -32,6 +32,32 @@ class RewriteStrategy(StrEnum):
     NONE = "none"
     STEP_BACK = "step_back"
     HYDE = "hyde"
+
+
+class OutputMode(StrEnum):
+    CONVERSATIONAL = "conversational"
+    STRUCTURED = "structured"
+    EVIDENCE_ONLY = "evidence_only"
+
+
+class StructuredSchemaName(StrEnum):
+    FACT_LIST = "fact_list"
+    COMPARISON = "comparison"
+
+
+class CitationLocatorKind(StrEnum):
+    MARKDOWN = "markdown_heading"
+    TEXT = "text_range"
+    PDF = "pdf_element"
+    IMAGE = "image"
+    TABLE = "table_rows"
+    GENERIC = "generic"
+
+
+class ConfidenceLevel(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 
 
 class MetadataOperator(StrEnum):
@@ -167,12 +193,93 @@ class RetrievedChunk(BaseModel):
 class Citation(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    citation_id: str = Field(default="", pattern=r"^$|^C[1-9][0-9]*$")
     source_id: str = Field(min_length=1)
     chunk_id: str = Field(min_length=1)
     locator: str = Field(min_length=1)
     excerpt: str = Field(min_length=1, max_length=500)
     document_version_id: UUID | None = None
     title: str | None = None
+    locator_detail: "CitationLocator | None" = None
+
+
+class CitationLocator(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: CitationLocatorKind
+    label: str = Field(min_length=1)
+    heading_path: tuple[str, ...] = ()
+    start_line: int | None = Field(default=None, ge=1)
+    end_line: int | None = Field(default=None, ge=1)
+    page_number: int | None = Field(default=None, ge=1)
+    element_id: UUID | None = None
+    image_id: UUID | None = None
+    table_id: UUID | None = None
+    row_start: int | None = Field(default=None, ge=1)
+    row_end: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> "CitationLocator":
+        if (
+            self.start_line is not None
+            and self.end_line is not None
+            and self.end_line < self.start_line
+        ):
+            raise ValueError("end_line must be greater than or equal to start_line")
+        if (
+            self.row_start is not None
+            and self.row_end is not None
+            and self.row_end < self.row_start
+        ):
+            raise ValueError("row_end must be greater than or equal to row_start")
+        return self
+
+
+class ConfidenceExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    level: ConfidenceLevel
+    rationale: str = Field(min_length=1, max_length=500)
+    calibration: str = (
+        "Qualitative evidence assessment; this level is not a calibrated probability."
+    )
+
+
+class CitedClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    statement: str = Field(min_length=1)
+    citation_ids: list[str] = Field(min_length=1)
+
+
+class FactListAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_name: Literal[StructuredSchemaName.FACT_LIST] = StructuredSchemaName.FACT_LIST
+    summary: str = Field(min_length=1)
+    facts: list[CitedClaim] = Field(min_length=1, max_length=20)
+
+
+class ComparisonItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    subject: str = Field(min_length=1)
+    details: list[str] = Field(min_length=1, max_length=20)
+    citation_ids: list[str] = Field(min_length=1)
+
+
+class ComparisonAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_name: Literal[StructuredSchemaName.COMPARISON] = StructuredSchemaName.COMPARISON
+    summary: str = Field(min_length=1)
+    items: list[ComparisonItem] = Field(min_length=1, max_length=20)
+
+
+StructuredAnswer = Annotated[
+    FactListAnswer | ComparisonAnswer,
+    Field(discriminator="schema_name"),
+]
 
 
 class QueryRequest(BaseModel):
@@ -183,25 +290,81 @@ class QueryRequest(BaseModel):
     metadata_filter: MetadataFilterPlan | None = None
     infer_metadata_filter: bool = False
     rewrite: RewriteStrategy = RewriteStrategy.NONE
+    output_mode: OutputMode = OutputMode.CONVERSATIONAL
+    schema_name: StructuredSchemaName | None = None
+
+    @model_validator(mode="after")
+    def validate_output_selection(self) -> "QueryRequest":
+        if self.output_mode is OutputMode.STRUCTURED and self.schema_name is None:
+            raise ValueError("schema_name is required for structured output")
+        if self.output_mode is not OutputMode.STRUCTURED and self.schema_name is not None:
+            raise ValueError("schema_name is only valid for structured output")
+        return self
+
+
+class GenerationTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_version: str
+    output_mode: OutputMode
+    schema_name: StructuredSchemaName | None = None
+    attempts: int = Field(default=0, ge=0)
+    repair_attempts: int = Field(default=0, ge=0)
+    native_structured_output: bool = False
+    validation_errors: list[str] = Field(default_factory=list)
+    degraded_reason: str | None = None
+    model_output_committed: bool = False
 
 
 class TraceSummary(BaseModel):
     timings_ms: dict[str, float] = Field(default_factory=dict)
     retrieved: list[RetrievedChunk] = Field(default_factory=list)
     retrieval: "AdvancedRetrievalTrace | None" = None
+    generation: GenerationTrace | None = None
 
 
 class AnswerResponse(BaseModel):
     status: AnswerStatus
     answer: str = Field(min_length=1)
+    structured_result: StructuredAnswer | None = None
     citations: list[Citation] = Field(default_factory=list)
+    confidence: ConfidenceExplanation
+    uncovered_subquestions: list[str] = Field(default_factory=list)
+    route: QueryRoute | None = None
+    trace_id: UUID = Field(default_factory=uuid4)
+    warnings: list[str] = Field(default_factory=list)
     trace: TraceSummary
 
     @model_validator(mode="after")
-    def answered_responses_have_citations(self) -> "AnswerResponse":
-        if self.status is AnswerStatus.ANSWERED and not self.citations:
-            raise ValueError("answered responses require at least one citation")
+    def validate_answer_contract(self) -> "AnswerResponse":
+        if self.status in {AnswerStatus.ANSWERED, AnswerStatus.DEGRADED}:
+            if not self.citations:
+                raise ValueError("answered and degraded responses require at least one citation")
+            citation_ids = [item.citation_id for item in self.citations]
+            if any(not item for item in citation_ids):
+                raise ValueError("answered and degraded citations require citation_id")
+            if len(citation_ids) != len(set(citation_ids)):
+                raise ValueError("citation_id values must be unique")
+        if self.structured_result is not None:
+            if self.trace.generation is None:
+                raise ValueError("structured results require a generation trace")
+            if self.trace.generation.output_mode is not OutputMode.STRUCTURED:
+                raise ValueError("structured_result requires structured output mode")
+            if self.structured_result.schema_name is not self.trace.generation.schema_name:
+                raise ValueError("structured_result does not match the selected schema")
+            allowed = {item.citation_id for item in self.citations}
+            referenced = structured_citation_ids(self.structured_result)
+            if not referenced <= allowed:
+                raise ValueError("structured_result references an unavailable citation")
+        if self.status is AnswerStatus.ABSTAINED and self.structured_result is not None:
+            raise ValueError("abstained responses cannot contain a structured result")
         return self
+
+
+def structured_citation_ids(value: StructuredAnswer) -> set[str]:
+    if isinstance(value, FactListAnswer):
+        return {citation for fact in value.facts for citation in fact.citation_ids}
+    return {citation for item in value.items for citation in item.citation_ids}
 
 
 class ComponentHealth(BaseModel):

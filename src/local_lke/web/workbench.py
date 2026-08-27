@@ -1,5 +1,7 @@
 """Gradio workbench mounted inside the FastAPI process."""
 
+import html
+import json
 import mimetypes
 import os
 from collections.abc import Iterator
@@ -21,12 +23,14 @@ from local_lke.models import (
     ChunkStrategy,
     ExpansionStrategy,
     MetadataFilterPlan,
+    OutputMode,
     ParserStrategy,
     QueryRequest,
     RetrievalStrategy,
     RewriteStrategy,
     StructuredQueryPlan,
     StructuredQueryRequest,
+    StructuredSchemaName,
     VectorSearchRequest,
 )
 from local_lke.rag import RAGPipeline
@@ -45,7 +49,7 @@ def build_workbench(
     multimodal: MultimodalIndexingService | None = None,
 ) -> gr.Blocks:
     with gr.Blocks(title="Local LKE RAG Workbench") as workbench:
-        gr.Markdown("# Local LKE · Chapters 3-4 Indexing and Retrieval Workbench")
+        gr.Markdown("# Local LKE · Chapters 1-5 RAG Workbench")
 
         with gr.Tab("Setup"):
             gr.Markdown(
@@ -163,6 +167,17 @@ def build_workbench(
                 value="How quickly does Atlas acknowledge a priority-one incident?",
             )
             top_k = gr.Slider(1, 5, value=settings.default_top_k, step=1, label="Top K")
+            with gr.Row():
+                output_mode = gr.Dropdown(
+                    [item.value for item in OutputMode],
+                    value=OutputMode.CONVERSATIONAL.value,
+                    label="Output mode",
+                )
+                output_schema = gr.Dropdown(
+                    [item.value for item in StructuredSchemaName],
+                    value=StructuredSchemaName.FACT_LIST.value,
+                    label="Structured schema",
+                )
             ask = gr.Button("Ask")
             answer = gr.Markdown(label="Grounded answer")
             citations = gr.Markdown(label="Citations")
@@ -220,6 +235,17 @@ def build_workbench(
                 value=False,
                 label="Ask local model for a validated metadata plan",
             )
+            with gr.Row():
+                retrieval_output_mode = gr.Dropdown(
+                    [item.value for item in OutputMode],
+                    value=OutputMode.CONVERSATIONAL.value,
+                    label="Generation output mode",
+                )
+                retrieval_output_schema = gr.Dropdown(
+                    [item.value for item in StructuredSchemaName],
+                    value=StructuredSchemaName.FACT_LIST.value,
+                    label="Generation structured schema",
+                )
             run_retrieval = gr.Button("Run retrieval", variant="primary")
             retrieval_answer = gr.Markdown(label="Answer or abstention")
             retrieval_citations = gr.Markdown(label="Versioned citations")
@@ -234,7 +260,8 @@ def build_workbench(
                     outputs=retrieval_collection,
                 )
                 run_retrieval.click(
-                    fn=lambda collection_id, user_question, strategy, rewrite, k, filters, infer: (
+                    fn=lambda collection_id, user_question, strategy, rewrite, k,
+                    filters, infer, mode, schema: (
                         retrieval_callback(
                             retrieval,
                             collection_id,
@@ -244,6 +271,8 @@ def build_workbench(
                             int(k),
                             filters,
                             infer,
+                            mode,
+                            schema,
                         )
                     ),
                     inputs=[
@@ -254,6 +283,8 @@ def build_workbench(
                         retrieval_top_k,
                         metadata_plan,
                         infer_metadata,
+                        retrieval_output_mode,
+                        retrieval_output_schema,
                     ],
                     outputs=[
                         retrieval_answer,
@@ -387,8 +418,10 @@ def build_workbench(
                 )
 
         ask.click(
-            fn=lambda user_question, k: chat_callback(pipeline, user_question, int(k)),
-            inputs=[question, top_k],
+            fn=lambda user_question, k, mode, schema: chat_callback(
+                pipeline, user_question, int(k), mode, schema
+            ),
+            inputs=[question, top_k, output_mode, output_schema],
             outputs=[answer, citations, trace],
         )
 
@@ -436,20 +469,39 @@ def document_summary(pipeline: RAGPipeline) -> list[dict[str, str]]:
 
 
 def chat_callback(
-    pipeline: RAGPipeline, question: str, top_k: int
+    pipeline: RAGPipeline,
+    question: str,
+    top_k: int,
+    output_mode: str = OutputMode.CONVERSATIONAL.value,
+    schema_name: str | None = None,
 ) -> Iterator[tuple[str, str, dict[str, object]]]:
     answer_text = ""
     trace: dict[str, object] = {}
     try:
-        for event_type, data in pipeline.stream_query(question, top_k):
+        mode = OutputMode(output_mode)
+        selected_schema = (
+            StructuredSchemaName(schema_name or StructuredSchemaName.FACT_LIST.value)
+            if mode is OutputMode.STRUCTURED
+            else None
+        )
+        for event_type, data in pipeline.stream_query(
+            question,
+            top_k,
+            output_mode=mode,
+            schema_name=selected_schema,
+        ):
             if event_type == "retrieval":
                 trace = data
                 yield "Retrieving evidence…", "", trace
             elif event_type == "delta":
                 answer_text += str(data)
-                yield answer_text, "", trace
+                yield sanitize_markdown(answer_text), "", trace
             elif event_type == "completion" and isinstance(data, AnswerResponse):
-                yield data.answer, format_citations(data), data.trace.model_dump(mode="json")
+                yield (
+                    render_answer(data),
+                    format_citations(data),
+                    data.trace.model_dump(mode="json"),
+                )
     except LKEError as exc:
         yield f"Provider error: {exc}", "", trace
 
@@ -458,12 +510,40 @@ def format_citations(response: AnswerResponse) -> str:
     if not response.citations:
         return "No supporting citation was available."
     lines = ["### Sources"]
-    for index, citation in enumerate(response.citations, start=1):
+    for citation in response.citations:
+        source_id = sanitize_markdown(citation.source_id)
+        chunk_id = sanitize_markdown(citation.chunk_id)
+        excerpt = sanitize_markdown(citation.excerpt)
         lines.append(
-            f"{index}. [{citation.source_id}]({citation_url(citation.source_id)}) — "
-            f"`{citation.chunk_id}`: {citation.excerpt}"
+            f"- **{citation.citation_id}** [{source_id}]({citation_url(citation.source_id)}) — "
+            f"`{chunk_id}`: {excerpt}"
         )
     return "\n\n".join(lines)
+
+
+def render_answer(response: AnswerResponse) -> str:
+    status = sanitize_markdown(response.status.value.upper())
+    if response.structured_result is not None:
+        body = json.dumps(
+            response.structured_result.model_dump(mode="json"),
+            ensure_ascii=False,
+            indent=2,
+        )
+    else:
+        body = response.answer
+    warning = ""
+    if response.warnings:
+        warning = "\n\nWarnings: " + "; ".join(response.warnings)
+    return f"**Status: {status}**\n\n{sanitize_markdown(body + warning)}"
+
+
+def sanitize_markdown(value: str) -> str:
+    """Render model/source text literally in Gradio Markdown, including hostile HTML."""
+
+    escaped = html.escape(value, quote=True)
+    for character in "\\`*_{}[]()#+!|":
+        escaped = escaped.replace(character, f"\\{character}")
+    return escaped
 
 
 def collection_choices(ingestion: IngestionService) -> list[tuple[str, str]]:
@@ -567,10 +647,13 @@ def retrieval_callback(
     top_k: int,
     filters: dict[str, object] | None,
     infer_metadata: bool,
+    output_mode: str = OutputMode.CONVERSATIONAL.value,
+    schema_name: str | None = None,
 ) -> tuple[str, str, object, object]:
     if not collection_id:
         return "Choose a collection.", "", {}, {}
     try:
+        mode = OutputMode(output_mode)
         response = retrieval.query(
             QueryRequest(
                 collection_id=UUID(collection_id),
@@ -580,6 +663,14 @@ def retrieval_callback(
                 top_k=top_k,
                 metadata_filter=MetadataFilterPlan.model_validate(filters or {}),
                 infer_metadata_filter=infer_metadata,
+                output_mode=mode,
+                schema_name=(
+                    StructuredSchemaName(
+                        schema_name or StructuredSchemaName.FACT_LIST.value
+                    )
+                    if mode is OutputMode.STRUCTURED
+                    else None
+                ),
             )
         )
         advanced = response.trace.retrieval
@@ -588,7 +679,7 @@ def retrieval_callback(
             if advanced is not None
             else []
         )
-        decision = (
+        decision: dict[str, object] = (
             {
                 "context_manifest": [
                     item.model_dump(mode="json") for item in advanced.context_manifest
@@ -600,7 +691,13 @@ def retrieval_callback(
             if advanced is not None
             else {}
         )
-        return response.answer, format_citations(response), candidates, decision
+        decision["generation"] = (
+            response.trace.generation.model_dump(mode="json")
+            if response.trace.generation is not None
+            else None
+        )
+        decision["warnings"] = response.warnings
+        return render_answer(response), format_citations(response), candidates, decision
     except (LKEError, ValueError) as exc:
         return f"Retrieval error: {exc}", "", {}, {}
 

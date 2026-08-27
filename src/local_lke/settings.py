@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     chat_api_key: SecretStr | None = SecretStr("lm-studio")
     chat_timeout_seconds: float = Field(default=60.0, gt=0)
     chat_max_retries: int = Field(default=1, ge=0, le=10)
+    generation_max_repair_attempts: int = Field(default=1, ge=0, le=3)
+    generation_native_structured_output: bool = False
     embedding_model: str = Field(
         default="BAAI/bge-small-en-v1.5",
         min_length=1,
@@ -85,6 +87,10 @@ class Settings(BaseSettings):
             "chat_model": self.chat_model,
             "chat_timeout_seconds": self.chat_timeout_seconds,
             "chat_max_retries": self.chat_max_retries,
+            "generation_max_repair_attempts": self.generation_max_repair_attempts,
+            "generation_native_structured_output": str(
+                self.generation_native_structured_output
+            ),
             "embedding_model": self.embedding_model,
             "embedding_model_revision": self.embedding_model_revision,
             "embedding_dimension": self.embedding_dimension,

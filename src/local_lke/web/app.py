@@ -55,8 +55,8 @@ def create_app(
 
     app = FastAPI(
         title="Local LKE RAG API",
-        version="0.4.1",
-        description="Persistent Chapter 3 indexes with Chapter 4 advanced retrieval.",
+        version="0.5.0",
+        description="Validated Chapter 5 generation over persistent advanced retrieval.",
         lifespan=lifespan,
     )
     app.state.pipeline = resolved_pipeline

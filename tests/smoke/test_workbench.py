@@ -3,6 +3,7 @@ from pathlib import Path
 import gradio as gr
 
 from local_lke.ingestion import IngestionService
+from local_lke.providers import DeterministicFakeEmbeddings, FakeChatProvider
 from local_lke.rag import RAGPipeline
 from local_lke.settings import Settings
 from local_lke.web.workbench import (
@@ -35,6 +36,8 @@ def test_gradio_blocks_constructs_with_expected_tabs(
         "Query rewrite",
         "Final context manifest and answerability",
         "Rows, safe SQL preview, and provenance",
+        "Output mode",
+        "Structured schema",
     } <= labels
 
 
@@ -52,6 +55,23 @@ def test_primary_chat_callback_streams_answer_and_trace(pipeline: RAGPipeline) -
     assert "fixture:atlas-support" in citations
     assert trace["retrieved"][0]["rank"] == 1
     assert document_summary(pipeline)[0]["source_id"].startswith("fixture:")
+
+
+def test_chat_rendering_escapes_hostile_model_markdown_and_html() -> None:
+    hostile = '<script>alert("x")</script> [click](javascript:alert(1))'
+    pipeline = RAGPipeline(
+        chat=FakeChatProvider(hostile),
+        embeddings=DeterministicFakeEmbeddings(),
+    )
+
+    outputs = list(chat_callback(pipeline, "What does Atlas support say?", 1))
+    rendered, citations, trace = outputs[-1]
+
+    assert "<script>" not in rendered
+    assert "&lt;script&gt;" in rendered
+    assert "\\[click\\]\\(javascript:alert\\(1\\)\\)" in rendered
+    assert "fixture:" in citations
+    assert trace["generation"]["model_output_committed"] is True
 
 
 def test_ingestion_callbacks_create_upload_and_report_progress(

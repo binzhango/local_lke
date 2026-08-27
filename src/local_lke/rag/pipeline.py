@@ -7,13 +7,16 @@ from typing import Any, cast
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import InMemoryVectorStore
 
+from local_lke.generation import GenerationEvidence, GenerationRequest, GenerationService
+from local_lke.generation.locators import citation_locator
 from local_lke.models import (
     AnswerResponse,
-    AnswerStatus,
     Citation,
+    OutputMode,
+    QueryRoute,
     RetrievedChunk,
     SourceDocument,
-    TraceSummary,
+    StructuredSchemaName,
 )
 from local_lke.providers import ChatProvider, EmbeddingProvider
 from local_lke.rag.documents import (
@@ -21,7 +24,6 @@ from local_lke.rag.documents import (
     langchain_document_to_chunk,
     load_fixture_documents,
 )
-from local_lke.rag.prompting import build_grounded_prompt
 from local_lke.rag.splitting import split_documents
 
 
@@ -35,6 +37,8 @@ class RAGPipeline:
         embeddings: EmbeddingProvider,
         default_top_k: int = 3,
         documents: list[SourceDocument] | None = None,
+        generation_max_repair_attempts: int = 1,
+        generation_native_structured_output: bool = False,
     ) -> None:
         self.chat = chat
         self.embeddings = embeddings
@@ -43,6 +47,11 @@ class RAGPipeline:
         self._documents: list[SourceDocument] = []
         self._vector_store: InMemoryVectorStore | None = None
         self._preparation_timings: dict[str, float] = {}
+        self.generation = GenerationService(
+            chat,
+            max_repair_attempts=generation_max_repair_attempts,
+            prefer_native_structured_output=generation_native_structured_output,
+        )
 
     @property
     def documents(self) -> list[SourceDocument]:
@@ -91,88 +100,103 @@ class RAGPipeline:
         ]
         return retrieved, elapsed
 
-    def query(self, question: str, top_k: int | None = None) -> AnswerResponse:
+    def query(
+        self,
+        question: str,
+        top_k: int | None = None,
+        *,
+        output_mode: OutputMode = OutputMode.CONVERSATIONAL,
+        schema_name: StructuredSchemaName | None = None,
+    ) -> AnswerResponse:
         retrieved, retrieval_ms = self.retrieve(question, top_k)
-        if not retrieved:
-            return self._answer_response(
-                answer="I do not know because no supporting evidence was retrieved.",
-                status=AnswerStatus.ABSTAINED,
-                retrieved=[],
-                retrieval_ms=retrieval_ms,
-                generation_ms=0.0,
-            )
-        prompt = build_grounded_prompt(question, retrieved)
         started = perf_counter()
-        answer = self.chat.generate(prompt).strip()
-        generation_ms = _elapsed_ms(started, perf_counter())
-        status = AnswerStatus.ANSWERED if answer else AnswerStatus.DEGRADED
-        return self._answer_response(
-            answer=answer or "The model returned an empty answer.",
-            status=status,
-            retrieved=retrieved,
-            retrieval_ms=retrieval_ms,
-            generation_ms=generation_ms,
+        response = self.generation.generate(
+            self._generation_request(
+                question,
+                retrieved,
+                retrieval_ms,
+                output_mode=output_mode,
+                schema_name=schema_name,
+            )
         )
+        response.trace.timings_ms["generate"] = _elapsed_ms(started, perf_counter())
+        response.trace.retrieved = retrieved
+        return response
 
     def stream_query(
-        self, question: str, top_k: int | None = None
+        self,
+        question: str,
+        top_k: int | None = None,
+        *,
+        output_mode: OutputMode = OutputMode.CONVERSATIONAL,
+        schema_name: StructuredSchemaName | None = None,
     ) -> Iterator[tuple[str, Any]]:
         retrieved, retrieval_ms = self.retrieve(question, top_k)
         yield "retrieval", {
             "chunks": [item.model_dump(mode="json") for item in retrieved],
             "timing_ms": retrieval_ms,
         }
-        if not retrieved:
-            response = self._answer_response(
-                answer="I do not know because no supporting evidence was retrieved.",
-                status=AnswerStatus.ABSTAINED,
-                retrieved=[],
-                retrieval_ms=retrieval_ms,
-                generation_ms=0.0,
-            )
-            yield "completion", response
-            return
-
-        prompt = build_grounded_prompt(question, retrieved)
         started = perf_counter()
-        tokens: list[str] = []
-        for delta in self.chat.stream(prompt):
-            tokens.append(delta)
-            yield "delta", delta
-        response = self._answer_response(
-            answer="".join(tokens).strip() or "The model returned an empty answer.",
-            status=AnswerStatus.ANSWERED if tokens else AnswerStatus.DEGRADED,
-            retrieved=retrieved,
-            retrieval_ms=retrieval_ms,
-            generation_ms=_elapsed_ms(started, perf_counter()),
+        request = self._generation_request(
+            question,
+            retrieved,
+            retrieval_ms,
+            output_mode=output_mode,
+            schema_name=schema_name,
         )
+        response = (
+            self.generation.generate_streaming(request)
+            if retrieved
+            else self.generation.generate(request)
+        )
+        response.trace.timings_ms["generate"] = _elapsed_ms(started, perf_counter())
+        response.trace.retrieved = retrieved
+        if response.status.value in {"answered", "degraded"}:
+            for offset in range(0, len(response.answer), 48):
+                yield "delta", response.answer[offset : offset + 48]
         yield "completion", response
 
-    def _answer_response(
+    def _generation_request(
         self,
-        *,
-        answer: str,
-        status: AnswerStatus,
+        question: str,
         retrieved: list[RetrievedChunk],
         retrieval_ms: float,
-        generation_ms: float,
-    ) -> AnswerResponse:
+        *,
+        output_mode: OutputMode,
+        schema_name: StructuredSchemaName | None,
+    ) -> GenerationRequest:
         timings = dict(self._preparation_timings)
-        timings.update({"retrieve": retrieval_ms, "generate": generation_ms})
-        citations = [
-            Citation(
+        timings.update({"retrieve": retrieval_ms, "generate": 0.0})
+        documents = {item.source_id: item for item in self.documents}
+        evidence = []
+        for index, item in enumerate(retrieved, start=1):
+            source = documents.get(item.chunk.source_id)
+            citation = Citation(
+                citation_id=f"C{index}",
                 source_id=item.chunk.source_id,
                 chunk_id=item.chunk.chunk_id,
                 locator=item.chunk.locator,
                 excerpt=_excerpt(item.chunk.text),
+                title=source.title if source else None,
+                locator_detail=citation_locator(
+                    item.chunk.locator,
+                    media_type=source.media_type if source else "text/plain",
+                ),
             )
-            for item in retrieved
-        ]
-        return AnswerResponse(
-            status=status,
-            answer=answer,
-            citations=citations,
-            trace=TraceSummary(timings_ms=timings, retrieved=retrieved),
+            evidence.append(GenerationEvidence(citation=citation, text=item.chunk.text))
+        return GenerationRequest(
+            question=question,
+            evidence=evidence,
+            output_mode=output_mode,
+            schema_name=schema_name,
+            route=QueryRoute.SIMPLE_LOOKUP,
+            answerability=(
+                "evidence passed the retrieval gate"
+                if retrieved
+                else "no supporting evidence was retrieved"
+            ),
+            sufficient=bool(retrieved),
+            timings_ms=timings,
         )
 
 

@@ -63,3 +63,15 @@ class RetrievalError(LKEError):
         super().__init__(message)
         if code is not None:
             self.code = code
+
+
+class GenerationError(LKEError):
+    """A generation contract or citation-integrity boundary was rejected."""
+
+    code = "generation_error"
+    component = "generation"
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        if code is not None:
+            self.code = code

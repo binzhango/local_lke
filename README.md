@@ -1,9 +1,9 @@
 # Local LKE
 
 Local LKE is an English, executable companion for learning Retrieval-Augmented
-Generation (RAG). Chapters 1-4 now provide a cited baseline, versioned ingestion,
+Generation (RAG). Chapters 1-5 now provide a cited baseline, versioned ingestion,
 persistent pgvector and multimodal indexing, and hybrid, metadata-aware,
-corrective retrieval. One FastAPI and Gradio application exposes collections,
+corrective retrieval plus validated generation. One FastAPI and Gradio application exposes collections,
 ingestion and indexing jobs, retrieval-stage traces, context manifests, image
 search, CSV schemas, safe SQL previews, and cited answers.
 
@@ -82,7 +82,7 @@ make check      # lint, typecheck, and deterministic tests
 uv run lke openapi  # export .artifacts/openapi.json
 ```
 
-## Chapters 2-4 capabilities and boundaries
+## Chapters 2-5 capabilities and boundaries
 
 - Named collections and `.md`, `.txt`, and `.pdf` uploads
 - Immutable versions with SHA-256 content and pipeline hashes
@@ -105,6 +105,11 @@ uv run lke openapi  # export .artifacts/openapi.json
   context manifests, one corrective retry, and evidence-based abstention
 - Validated CSV schema inference and SQLAlchemy-compiled read-only structured queries
 - The no-collection API path still preserves the Chapter 1 fixture baseline
+- Conversational, allowlisted structured JSON, and evidence-only generation modes
+- Stable citation IDs resolved only from the retrieved active-evidence registry
+- Pydantic validation, one bounded schema repair, and validation-safe traces
+- Extractive cited degradation for model/format failure and generation-free abstention
+- Versioned trust-boundary prompts and sanitized Gradio answer/source rendering
 - Authentication and multi-user ACLs remain out of scope
 
 See the [Chapter 1 learning notes](docs/chapter-01-knowledge-guide.md),
@@ -120,6 +125,9 @@ Chapter 3 adds the [indexing and embeddings learning guide](docs/chapter-03-know
 Chapter 4 adds the [advanced retrieval learning guide](docs/chapter-04-knowledge-guide.md),
 [implementation report](docs/chapter-04-implementation.md), and
 [retrieval operations guide](docs/chapter-04-retrieval.md).
+Chapter 5 adds the [validated generation learning guide](docs/chapter-05-knowledge-guide.md),
+[implementation report](docs/chapter-05-implementation.md), and
+[generation operations guide](docs/chapter-05-generation.md).
 
 ## API
 
@@ -142,6 +150,10 @@ Chapter 4 adds the [advanced retrieval learning guide](docs/chapter-04-knowledge
 - `GET /api/v1/sources/{source_id}` — citation target for bundled sources
 - `POST/GET /api/v1/collections/{id}/structured-tables` — ingest/list safe CSV tables
 - `POST /api/v1/structured/query` — execute a validated compiled structured plan
+
+`POST /api/v1/query` and `/query/stream` accept `output_mode` values
+`conversational`, `structured`, or `evidence_only`. Structured mode additionally
+requires the allowlisted `schema_name` `fact_list` or `comparison`.
 
 ## Future LKE extension
 

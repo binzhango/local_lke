@@ -10,13 +10,14 @@ from typing import Literal, Protocol
 from uuid import UUID
 
 from local_lke.errors import IndexingError, RetrievalError
+from local_lke.generation import GenerationEvidence, GenerationRequest, GenerationService
+from local_lke.generation.locators import citation_locator
 from local_lke.indexing import IndexingService
 from local_lke.models import (
     ActiveChunk,
     AdvancedRetrievalTrace,
     AnswerabilityTrace,
     AnswerResponse,
-    AnswerStatus,
     Citation,
     ContextManifestEntry,
     MetadataFilterPlan,
@@ -24,7 +25,6 @@ from local_lke.models import (
     RetrievalCandidateTrace,
     RetrievalStrategy,
     RewriteStrategy,
-    TraceSummary,
     VectorSearchRequest,
 )
 from local_lke.providers import ChatProvider, EmbeddingProvider
@@ -127,6 +127,7 @@ class AdvancedRetrievalService:
         reranker: Reranker | None = None,
         metadata_planner: MetadataPlanParser | None = None,
         indexing: IndexingService | None = None,
+        generation: GenerationService | None = None,
     ) -> None:
         self.repository = repository
         self.embeddings = embeddings
@@ -135,6 +136,11 @@ class AdvancedRetrievalService:
         self.reranker = reranker
         self.metadata_planner = metadata_planner
         self.indexing = indexing
+        self.generation = generation or GenerationService(
+            chat,
+            max_repair_attempts=settings.generation_max_repair_attempts,
+            prefer_native_structured_output=settings.generation_native_structured_output,
+        )
 
     def query(self, request: QueryRequest) -> AnswerResponse:
         if request.collection_id is None:
@@ -151,46 +157,54 @@ class AdvancedRetrievalService:
         result = self.retrieve(request)
         retrieval_ms = _elapsed_ms(started)
         answerability = result.trace.answerability
-        if not answerability.sufficient:
-            return AnswerResponse(
-                status=AnswerStatus.ABSTAINED,
-                answer=(
-                    "I do not know from the selected collection. The available evidence "
-                    f"was insufficient ({answerability.reason})."
-                ),
-                citations=[],
-                trace=TraceSummary(
-                    timings_ms={"retrieve": retrieval_ms, "generate": 0.0},
-                    retrieval=result.trace,
-                ),
-            )
-
-        prompt = _grounded_prompt(request.question, result.context)
         generation_started = perf_counter()
-        answer = self.chat.generate(prompt).strip()
-        citations = [
-            Citation(
-                source_id=f"version:{item.candidate.chunk.version_id}",
-                chunk_id=item.candidate.chunk.chunk_id,
-                locator=item.candidate.chunk.locator,
-                excerpt=_excerpt(item.text),
-                document_version_id=item.candidate.chunk.version_id,
-                title=item.candidate.chunk.filename,
+        evidence = []
+        for index, item in enumerate(result.context, start=1):
+            chunk = item.candidate.chunk
+            evidence.append(
+                GenerationEvidence(
+                    citation=Citation(
+                        citation_id=f"C{index}",
+                        source_id=f"version:{chunk.version_id}",
+                        chunk_id=chunk.chunk_id,
+                        locator=chunk.locator,
+                        excerpt=_excerpt(item.text),
+                        document_version_id=chunk.version_id,
+                        title=chunk.filename,
+                        locator_detail=citation_locator(
+                            chunk.locator,
+                            media_type=chunk.media_type,
+                            heading_path=chunk.heading_path,
+                            page_number=chunk.page_number,
+                        ),
+                    ),
+                    text=item.text,
+                )
             )
+        covered = {
+            subquery
             for item in result.context
+            for subquery in item.candidate.matched_subqueries
+        }
+        uncovered = [
+            item for item in result.trace.transform.subqueries if item not in covered
         ]
-        return AnswerResponse(
-            status=AnswerStatus.ANSWERED if answer else AnswerStatus.DEGRADED,
-            answer=answer or "The model returned an empty answer.",
-            citations=citations if answer else [],
-            trace=TraceSummary(
-                timings_ms={
-                    "retrieve": retrieval_ms,
-                    "generate": _elapsed_ms(generation_started),
-                },
-                retrieval=result.trace,
-            ),
+        response = self.generation.generate(
+            GenerationRequest(
+                question=request.question,
+                evidence=evidence,
+                output_mode=request.output_mode,
+                schema_name=request.schema_name,
+                uncovered_subquestions=uncovered,
+                route=result.trace.transform.route,
+                answerability=answerability.reason,
+                sufficient=answerability.sufficient,
+                timings_ms={"retrieve": retrieval_ms, "generate": 0.0},
+                retrieval_trace=result.trace,
+            )
         )
+        response.trace.timings_ms["generate"] = _elapsed_ms(generation_started)
+        return response
 
     def retrieve(self, request: QueryRequest) -> RetrievalResult:
         if request.collection_id is None:

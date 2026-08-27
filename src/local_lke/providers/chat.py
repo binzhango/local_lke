@@ -1,11 +1,12 @@
 """OpenAI-compatible local chat provider and deterministic test double."""
 
+import json
 from collections.abc import Iterator
 from typing import Protocol
 
 import httpx
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
+from pydantic import BaseModel, SecretStr
 
 from local_lke.errors import ProviderUnavailableError
 from local_lke.settings import Settings
@@ -84,6 +85,21 @@ class LangChainChatProvider:
             ) from exc
         return _content_to_text(response.content)
 
+    def generate_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
+        """Use provider-native JSON Schema when explicitly enabled by configuration."""
+
+        try:
+            runnable = self._client.with_structured_output(schema, method="json_schema")
+            result = runnable.invoke(prompt)
+            return result if isinstance(result, schema) else schema.model_validate(result)
+        except Exception as exc:
+            raise ProviderUnavailableError(
+                "Native structured output failed. Disable "
+                "LKE_GENERATION_NATIVE_STRUCTURED_OUTPUT for parser mode or verify that "
+                "the local server implements JSON Schema responses.",
+                component="chat.structured_output",
+            ) from exc
+
     def stream(self, prompt: str) -> Iterator[str]:
         try:
             for response in self._client.stream(prompt):
@@ -115,14 +131,47 @@ class FakeChatProvider:
         return "fake completion succeeded"
 
     def generate(self, prompt: str) -> str:
-        del prompt
-        return self.answer
+        if '"model_contract": "chapter5"' not in prompt:
+            return self.answer
+        try:
+            parsed = json.loads(self.answer)
+            if isinstance(parsed, dict):
+                return self.answer
+        except ValueError:
+            pass
+        if '"output_mode": "structured"' in prompt:
+            if '"schema_name": "comparison"' in prompt:
+                payload = {
+                    "schema_name": "comparison",
+                    "summary": self.answer,
+                    "items": [
+                        {
+                            "subject": "Retrieved evidence",
+                            "details": [self.answer],
+                            "citation_ids": ["C1"],
+                        }
+                    ],
+                }
+            else:
+                payload = {
+                    "schema_name": "fact_list",
+                    "summary": self.answer,
+                    "facts": [{"statement": self.answer, "citation_ids": ["C1"]}],
+                }
+        else:
+            payload = {
+                "answer": self.answer,
+                "claims": [{"statement": self.answer, "citation_ids": ["C1"]}],
+            }
+        return json.dumps(payload)
 
     def stream(self, prompt: str) -> Iterator[str]:
-        del prompt
-        words = self.answer.split()
+        words = self.generate(prompt).split()
         for index, word in enumerate(words):
             yield word if index == 0 else f" {word}"
+
+    def generate_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
+        return schema.model_validate_json(self.generate(prompt))
 
 
 def _content_to_text(content: object) -> str:

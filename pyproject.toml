@@ -1,6 +1,6 @@
 [project]
 name = "local-lke"
-version = "0.4.1"
+version = "0.5.0"
 description = "A local-first, inspectable RAG workbench and future knowledge-management expert system"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -8,7 +8,7 @@ license = { file = "LICENSE" }
 dependencies = [
   "alembic>=1.16,<2",
   "fastapi>=0.116,<1",
-  "gradio>=5.49,<7",
+  "gradio>=5.49,<6",
   "httpx>=0.28,<1",
   "langchain-core>=0.3.76,<2",
   "langchain-huggingface>=0.3.1,<2",

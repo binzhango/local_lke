@@ -1,4 +1,4 @@
-# Chapters 1-4 Quick Start
+# Chapters 1-5 Quick Start
 
 ## Automated foundation setup
 
@@ -132,6 +132,23 @@ compiles the plan; it never executes model SQL.
 See [Chapter 3 indexing operations](chapter-03-indexing.md) and
 [Chapter 4 retrieval operations](chapter-04-retrieval.md) for request examples
 and tuning controls.
+
+## Chapter 5 validated generation
+
+In Chat or Retrieval Lab, choose conversational, structured, or evidence-only
+output. Structured mode also requires `fact_list` or `comparison`. Status,
+warnings, validation/degradation state, and citations remain separate.
+
+Prompt-plus-parser mode is the compatible default. Enable native JSON Schema
+only when your local server supports it:
+
+```dotenv
+LKE_GENERATION_NATIVE_STRUCTURED_OUTPUT=false
+LKE_GENERATION_MAX_REPAIR_ATTEMPTS=1
+```
+
+See [Chapter 5 generation operations](chapter-05-generation.md) for API examples,
+status handling, structured-output troubleshooting, and the streaming contract.
 
 ## Troubleshooting
 

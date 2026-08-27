@@ -1,4 +1,4 @@
-# Chapters 1-4 Architecture
+# Chapters 1-5 Architecture
 
 Chapter 1 is a measured naive-RAG baseline. It separates the four stages so later
 chapters can improve one stage without changing the public answer contract.
@@ -60,3 +60,18 @@ Fixture answers record `load`, `split`, `embed`, `retrieve`, and `generate`.
 Persisted answers additionally expose query transformation, metadata plan,
 dense/lexical/fused/reranked positions, context inclusion/exclusion/truncation,
 reranker latency/gain, sufficiency features, and corrective strategy.
+
+Chapter 5 turns generation from unvalidated text into a stable application boundary:
+
+| Generation stage | Responsibility | Implementation |
+|---|---|---|
+| Evidence registry | Assign `C1..Cn` only to active retrieved evidence and typed locators | `generation/service.py`, `generation/locators.py` |
+| Prompt boundary | Separate policy, contract, answerability, manifest, encoded untrusted evidence, and question | `generation/prompting.py` |
+| Output contract | Validate conversational claims or allowlisted `fact_list`/`comparison` JSON | `models.py`, `generation/service.py` |
+| Repair | Return sanitized validation categories to one bounded retry | `generation/service.py` |
+| Degradation | Produce cited extracts on provider/schema failure; preserve no-evidence abstention | `generation/service.py` |
+| Presentation | Serialize one API/SSE contract and escape generated/source Markdown in Gradio | `web/api.py`, `web/workbench.py` |
+
+Model citation IDs are references into the application registry, not source
+identifiers accepted from the model. Only the application resolves a validated
+ID to its retrieved source version, chunk, locator, and excerpt.

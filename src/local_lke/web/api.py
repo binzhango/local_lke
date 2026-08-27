@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
 from local_lke.errors import (
+    GenerationError,
     IndexingError,
     IngestionError,
     LKEError,
@@ -88,13 +89,27 @@ def create_router(
     )
     def query(payload: QueryRequest) -> AnswerResponse:
         if payload.collection_id is None and payload.strategy.value == "dense":
-            return pipeline.query(payload.question, payload.top_k)
+            return pipeline.query(
+                payload.question,
+                payload.top_k,
+                output_mode=payload.output_mode,
+                schema_name=payload.schema_name,
+            )
         return retrieval.query(payload)
 
     @router.post("/api/v1/query/stream")
     def stream_query(payload: QueryRequest) -> StreamingResponse:
         async def events() -> AsyncIterator[str]:
-            yield _sse("start", {"question": payload.question})
+            yield _sse(
+                "start",
+                {
+                    "question": payload.question,
+                    "output_mode": payload.output_mode.value,
+                    "schema_name": (
+                        payload.schema_name.value if payload.schema_name is not None else None
+                    ),
+                },
+            )
             try:
                 if payload.collection_id is not None:
                     response = retrieval.query(payload)
@@ -105,7 +120,12 @@ def create_router(
                         )
                     yield _sse("completion", response.model_dump(mode="json"))
                     return
-                for event_type, data in pipeline.stream_query(payload.question, payload.top_k):
+                for event_type, data in pipeline.stream_query(
+                    payload.question,
+                    payload.top_k,
+                    output_mode=payload.output_mode,
+                    schema_name=payload.schema_name,
+                ):
                     if hasattr(data, "model_dump"):
                         data = data.model_dump(mode="json")
                     yield _sse(event_type, data)
@@ -351,6 +371,8 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code = 404 if exc.code.endswith("not_found") else 422
         elif isinstance(exc, IndexingError):
             status_code = 413 if exc.code in {"file_too_large", "image_too_large"} else 422
+        elif isinstance(exc, GenerationError):
+            status_code = 422
         return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
 
     @app.exception_handler(RequestValidationError)
