@@ -20,6 +20,11 @@ I think of it as an **open-book exam**:
 The important point is that RAG does not retrain the model. It changes the
 context available for one request.
 
+This also addresses the “knows the answer but cannot explain the basis” problem.
+An LLM may produce a fluent fact from opaque model memory; RAG gives the answer
+an inspectable external basis. Inspectability is the goal, not a guarantee that
+every retrieved source or generated statement is correct.
+
 ## 2. Why RAG exists
 
 An LLM has several knowledge limitations:
@@ -133,6 +138,13 @@ cannot use evidence that was loaded, split, or retrieved incorrectly.
 The system loads documents, cleans their text, keeps useful metadata, and splits
 them into chunks.
 
+The source material may be heterogeneous: PDF, Word, Markdown, web pages, or
+other business data. Before retrieval, these sources need a normalized text and
+metadata representation. When possible, split on semantic units such as
+headings and paragraphs instead of blindly cutting every fixed number of
+characters. A fixed-size fallback is still useful when a semantic unit is too
+large.
+
 Important metadata includes:
 
 - Source ID
@@ -160,6 +172,12 @@ the question vector with stored chunk vectors and returns the closest results.
 
 The retrieved chunks are candidates. Similarity does not prove that a chunk is
 correct, relevant, or sufficient.
+
+Vector similarity is the baseline, not the only retrieval method. A stronger
+pipeline may combine dense vector results with keyword search and then use a
+reranker to select the best evidence. Hybrid retrieval improves recall when
+exact names, identifiers, or technical terms matter; reranking tries to improve
+the final ordering before context reaches the LLM.
 
 ### Stage 4: generation
 
@@ -380,6 +398,10 @@ Advanced RAG improves a mostly fixed pipeline with techniques such as:
 - Reranking
 - Context compression
 
+Its limitation is that the overall flow is still relatively fixed. It offers
+more optimization points than Naive RAG, but less freedom than a dynamically
+composed modular workflow.
+
 ### Modular RAG
 
 Modular RAG uses composable and dynamic workflows:
@@ -498,6 +520,8 @@ specificity, citations, and uncertainty.
 | Term | Short meaning |
 |---|---|
 | RAG | Retrieve external evidence before generation |
+| Parametric knowledge | Knowledge encoded in model weights |
+| Non-parametric knowledge | External knowledge that can be retrieved at request time |
 | Corpus | Collection of source knowledge |
 | Chunk | Searchable piece of a source document |
 | Embedding | Vector representation of text |
@@ -515,8 +539,671 @@ specificity, citations, and uncertainty.
 | Naive RAG | Basic index, retrieve, generate workflow |
 | Advanced RAG | RAG with retrieval and context optimizations |
 | Modular RAG | Dynamically composed RAG workflow |
+| Index hot-swapping | Replacing or switching external knowledge without retraining the LLM |
+| Multi-hop question | A question that needs several facts or retrieval steps |
+| Routing | Choosing a retrieval source or workflow based on the request |
+| Fusion | Combining evidence from multiple retrieval paths |
 
-## 20. Final takeaways
+## 20. Why RAG is valuable
+
+RAG supplies external evidence, but its value is broader than a reduction in
+hallucination. I need to remember four separate benefit claims.
+
+### 20.1 Accuracy, specificity, diversity, and trust
+
+RAG can fill gaps in the model's pretrained knowledge and reduce unsupported
+answers by supplying concrete reference material. Compared with asking an LLM
+without external context, retrieved evidence can make an answer:
+
+- More fact-specific
+- More relevant to a domain
+- More varied because it is informed by source material
+- Easier to verify through provenance
+
+The trust improvement comes from inspectability. A user can compare the answer
+with the source instead of accepting an unsupported statement.
+
+This is not a guarantee. Accuracy improves only when the knowledge source,
+retrieval, context, and generation are all good enough.
+
+### 20.2 Timeliness and index hot-swapping
+
+Model weights are expensive to update, but an external index can change
+independently.
+
+Examples:
+
+- Add a new policy and index it.
+- Remove an obsolete manual.
+- Replace last month's product catalog.
+- Switch between customer-specific knowledge collections.
+
+The guide describes this as **index hot-swapping**: changing the model's
+available external knowledge without retraining the model. A production system
+still needs versioning and a controlled cutover so active requests do not see a
+partially rebuilt index.
+
+### 20.3 Cost effectiveness
+
+RAG can avoid repeated fine-tuning when the real problem is changing knowledge.
+It may also allow a smaller language model to perform well on a narrow domain
+because the required facts are supplied directly.
+
+However, RAG adds its own costs:
+
+- Data preparation
+- Embedding computation
+- Vector storage
+- Retrieval latency
+- More prompt tokens
+- Evaluation and observability
+
+The correct comparison is total system cost, not only model inference cost.
+
+### 20.4 Modularity and multi-source expansion
+
+Retrieval and generation are separate components. I can change an embedding
+model, vector store, reranker, or language model without redesigning every other
+stage—if the interfaces and tests are stable.
+
+A mature knowledge layer can also normalize many source types, including PDF,
+Word, web pages, tables, images, databases, and graphs. Chapter 1 only introduces
+this possibility; parsing and governing those sources require later work.
+
+### 20.5 Four LLM limitations RAG tries to address
+
+| LLM limitation | What RAG contributes | Remaining caution |
+|---|---|---|
+| Static or outdated knowledge | Retrieves an independently updated collection | The index itself can still be stale |
+| Hallucination | Supplies evidence and grounding instructions | The model may still misuse evidence |
+| Weak domain expertise | Adds domain-specific sources | Source and retrieval quality must be evaluated |
+| Privacy concerns | Can keep knowledge and models local | A cloud model still receives any context sent to it |
+
+## 21. The two-axis view of prompting, RAG, and fine-tuning
+
+The selection strategy can be understood on two axes.
+
+### LLM optimization axis
+
+This axis asks how much the model itself changes.
+
+- Prompt engineering: model weights do not change.
+- RAG: model weights do not change.
+- Fine-tuning: model parameters are updated.
+
+### Context optimization axis
+
+This axis asks how much the information supplied to the model changes.
+
+- Prompt engineering improves instructions.
+- RAG substantially enriches the context with external knowledge.
+- Fine-tuning may reduce the need to repeat behavioral instructions, but it does
+  not automatically provide current external facts.
+
+This explains the usual order:
+
+```text
+prompt engineering → RAG → fine-tuning
+```
+
+Start with the least invasive option. Use fine-tuning when I need to change
+**how the model acts**—style, format, repeated behavior, or a complex learned
+procedure. Use RAG when I need to change **what information is available now**.
+
+## 22. Risk levels and required controls
+
+The same RAG design is not equally appropriate for every consequence level.
+
+| Risk level | Example from Chapter 1 | Required posture |
+|---|---|---|
+| Low | Translation or grammar checking | Normal testing may be sufficient |
+| Medium | Contract drafting or legal consultation | Human review and clear source inspection are necessary |
+| High | Evidence analysis or visa decisions | Strict quality controls, auditability, and human decision authority are required |
+
+My main lesson is that adding RAG does not lower a use case's inherent risk.
+High-risk systems need stronger source governance, access control, evaluation,
+monitoring, refusal rules, human oversight, and often deterministic non-LLM
+checks.
+
+## 23. Toolchain choices mentioned in Chapter 1
+
+### Development style
+
+| Choice | Strength | Cost |
+|---|---|---|
+| LangChain | Explicit components and broad integrations | More assembly and framework concepts |
+| LlamaIndex | Higher-level knowledge/index abstractions | More behavior is hidden behind defaults |
+| Native implementation | Maximum control and fewer framework abstractions | More code, integration work, and tests |
+
+The right abstraction depends on whether the immediate goal is learning,
+prototyping, or controlling production behavior.
+
+### Vector storage
+
+- **Milvus** and **Pinecone** are examples aimed at larger-scale vector search.
+- **FAISS** and **Chroma** are common lightweight or local choices.
+- An in-memory vector store is useful for a tutorial or deterministic baseline.
+
+The choice depends on collection size, persistence, filtering, concurrency,
+latency, deployment model, backup, and operational experience.
+
+### Evaluation tools
+
+The guide mentions **RAGAS** and **TruLens** as tools that can help automate RAG
+evaluation. A tool does not replace a representative dataset or careful metric
+design; it provides reusable evaluators and experiment infrastructure.
+
+### Beginner and low-code paths
+
+- **FastGPT** and **Dify** package common knowledge-base workflows behind visual
+  interfaces.
+- **LangChain4j Easy RAG** provides a Java-oriented starting point.
+- **TinyRAG** is an example of a small open-source template.
+
+These tools are useful for fast validation. A developer still needs to
+understand chunking, retrieval, grounding, security, and evaluation to diagnose
+quality problems.
+
+## 24. Evaluation dimensions, challenges, and optimization directions
+
+### 24.1 Retrieval relevance
+
+The first question is whether retrieval found evidence that can answer the
+question.
+
+Useful checks include:
+
+- Does top-k contain an answer-bearing chunk?
+- What rank is the first relevant chunk?
+- How many returned chunks are irrelevant?
+- Are all required sources present for a multi-part question?
+
+Later evaluation can formalize these ideas with recall, precision, ranking, and
+context-relevance metrics.
+
+### 24.2 Generation quality
+
+The guide separates generation quality into at least two views:
+
+- **Semantic accuracy:** Does the answer mean the correct thing?
+- **Lexical or terminology match:** Does it use the required domain vocabulary?
+
+I should also evaluate faithfulness, completeness, relevance, citation support,
+and correct abstention.
+
+### 24.3 Retrieval dependency
+
+Generation depends heavily on retrieval. If incorrect evidence is supplied, a
+strong LLM may produce a fluent but incorrect answer. This is why upgrading the
+chat model is not the first solution to every RAG failure.
+
+### 24.4 Multi-hop reasoning
+
+Some questions require facts from several documents or several reasoning steps.
+A simple top-k search may retrieve one fact but miss the connecting fact.
+
+Possible later techniques include:
+
+- Query decomposition
+- Iterative retrieval
+- Graph traversal
+- Multi-query retrieval
+- Evidence fusion
+- Explicit intermediate reasoning state
+
+### 24.5 Performance optimization
+
+The guide highlights two expansion directions:
+
+- **Hierarchical indexes and caching:** keep frequently used knowledge in a
+  faster path while retaining access to the full collection.
+- **Multimodal retrieval:** retrieve information from images and tables, not only
+  plain text.
+
+Performance optimization must preserve correctness. A fast cache containing
+stale knowledge is not a successful RAG system.
+
+### 24.6 Architecture patterns
+
+A linear pipeline is not the only possible architecture.
+
+- **Branching:** run multiple retrieval paths in parallel, then combine results.
+- **Looping:** inspect an intermediate result and retrieve or revise again.
+- **Self-correction:** detect weak evidence or an unsupported draft before
+  returning the answer.
+
+These patterns increase capability while also increasing state management,
+latency, failure modes, and evaluation complexity.
+
+## 25. “RAG is dead?” and the LKE idea
+
+Chapter 1 presents two common arguments behind “RAG is dead”:
+
+1. Long-context models can ingest large amounts of text directly.
+2. The term RAG has become so broad that it hides important implementation
+   details.
+
+The counterargument is that the core idea remains useful: combine the model's
+parametric knowledge with external non-parametric knowledge at inference time.
+The architecture can evolve far beyond one vector search without losing this
+identity.
+
+The guide compares this with **Transformer**. Modern decoder-only and
+encoder-only systems differ from the original Transformer design, but the name
+still identifies the underlying architectural breakthrough. In the same way,
+RAG can remain a useful umbrella concept while its modules become more complex.
+
+### LKE: Large Language Model Knowledge Management Expert System
+
+The guide uses LKE as a more descriptive name for the direction of a mature
+system:
+
+- **L — Large Language Model:** language understanding and generation remain the
+  system's central intelligence interface.
+- **K — Knowledge Management:** the system acquires, organizes, updates,
+  retrieves, filters, and governs knowledge.
+- **E — Expert:** the system routes, analyzes, combines, corrects, and generates
+  results like an expert workflow rather than a single prompt.
+
+The term is not important by itself. The important lesson is to decompose the
+system into understandable modules and learn how internal model knowledge and
+external managed knowledge work together.
+
+## 26. Environment and reproducibility notes
+
+Chapter 1 spends significant space on setup because a RAG application combines
+many Python and model dependencies. A learner cannot study the pipeline if the
+environment is inconsistent.
+
+### 26.1 Model access
+
+The guide offers two cloud API paths:
+
+- AIHubmix as an aggregator with chat, embedding, and reranking model choices
+- The DeepSeek platform as a direct LLM API provider
+
+Both require an API key. A key may be displayed only once, so it must be copied
+and stored safely when created.
+
+General secret rules:
+
+- Store keys in environment variables or an ignored `.env` file.
+- Never place a real key in source code, screenshots, tests, or Git history.
+- Use a provider-specific variable name such as `DEEPSEEK_API_KEY` or
+  `AIHUBMIX_API_KEY`.
+- Rotate a key immediately if it is exposed.
+- Remember that retrieved context sent to a cloud API leaves the local machine.
+
+### 26.2 Development environment options
+
+The guide describes three paths:
+
+- **GitHub Codespaces:** browser-based development when GitHub access is good;
+  usage quotas and automatic suspension should be managed.
+- **Cloud Studio:** browser-based CPU/GPU environment presented as an alternative
+  for users with limited GitHub connectivity.
+- **Local Windows environment:** Miniconda, explicit environment variables, and
+  PATH configuration.
+
+The environment changes, but the reproducibility goal is the same: a known
+Python version, isolated dependencies, safely supplied secrets, and a repeatable
+startup command.
+
+### 26.3 Conda workflow in the guide
+
+The original setup creates a Python 3.12.7 environment:
+
+```bash
+conda create --name all-in-rag python=3.12.7
+conda activate all-in-rag
+cd code
+pip install -r requirements.txt
+```
+
+It also explains installing Git, cloning the repository, and using platform-
+appropriate package mirrors where necessary.
+
+### 26.4 uv appendix
+
+The appendix presents `uv` as a unified alternative for Python environment
+management, motivated by Python dependency fragmentation.
+
+It creates a Python 3.12.7 virtual environment:
+
+```bash
+uv venv rag --python 3.12.7
+```
+
+Activation differs by platform:
+
+```text
+Windows:       rag\Scripts\activate
+Linux/macOS:  source rag/bin/activate
+```
+
+The general lesson is more important than the exact tool: isolate dependencies,
+pin a compatible Python version, make installation repeatable, and document the
+commands that were actually tested.
+
+The appendix installs `uv` with PowerShell on Windows or the official shell
+installer on Linux and macOS. If `curl` is unavailable, it gives `wget` as a
+fallback. The installer may print a user-specific directory that must be added
+to `PATH`; that path should be copied from the local installer output rather
+than copied from somebody else's machine.
+
+### 26.5 Platform-specific details worth retaining
+
+The setup section is repetitive because it supports several environments. The
+important platform differences are:
+
+- **GitHub Codespaces:** fork the repository, create a codespace, update system
+  packages, install Miniconda, and manage the idle-suspension setting. The guide
+  notes that free usage is limited, so an unnecessarily long suspension delay
+  consumes quota.
+- **Cloud Studio:** import the Git repository, switch from the administrative
+  account to `ubuntu` when needed, install Miniconda as that user, and correct
+  ownership of the `code` and `models` directories before installing packages.
+- **Windows:** create the API key as a user environment variable, install
+  Miniconda into a path without Chinese characters or spaces, and manually add
+  the Miniconda root, `Scripts`, and `Library\bin` directories to `PATH`. The
+  guide also provides a regional Conda mirror for slow package downloads.
+- **Local clone:** install Git, verify it with `git --version`, clone the source,
+  create the Conda environment, activate it, enter `code`, and install
+  `requirements.txt`.
+
+These commands describe the guide's reproducible learning environment. They are
+not architectural requirements of RAG itself; another project can use a
+different environment manager while preserving the same isolation and secret-
+handling principles.
+
+## 27. Detailed notes on the LangChain walkthrough
+
+The tutorial's LangChain example loads a local Markdown document about
+reinforcement learning, retrieves relevant text, and asks a chat model to answer
+the question “What examples are given in the article?”
+
+The guide runs it after activating the environment and entering the Chapter 1
+code directory:
+
+```bash
+conda activate all-in-rag
+cd code/C1
+python 01_langchain_example.py
+```
+
+### 27.1 Initialization
+
+The example loads environment variables and imports these component roles:
+
+- `TextLoader` for the Markdown source
+- `RecursiveCharacterTextSplitter` for chunking
+- `HuggingFaceEmbeddings` for dense vectors
+- `InMemoryVectorStore` for the tutorial index
+- `ChatPromptTemplate` for prompt construction
+- `ChatOpenAI` for an OpenAI-compatible chat endpoint
+
+The first run downloads the `BAAI/bge-small-zh-v1.5` embedding model. A model
+download is environment preparation, not query-time reasoning. The guide also
+points to a `fix_nltk.py` helper if the example encounters an NLTK-related setup
+error. It also shows an optional Hugging Face mirror environment variable for
+environments that cannot download reliably from the default endpoint.
+
+### 27.2 Loading the source
+
+`TextLoader` loads one local Markdown file into LangChain document objects. At
+this point the content is available, but it is not yet a searchable semantic
+index.
+
+### 27.3 Recursive splitting defaults
+
+The example constructs `RecursiveCharacterTextSplitter()` without custom
+arguments. The guide records these defaults:
+
+- Separator order: paragraph (`\n\n`), line (`\n`), space, then character
+- `keep_separator=True`
+- `chunk_size=4000`
+- `chunk_overlap=200`
+
+The splitter tries larger semantic boundaries first and falls back to smaller
+ones until text fits the target size. Keeping separators helps preserve the
+original textual structure.
+
+These are tutorial defaults, not universal production settings. The exercise is
+to change chunk size and overlap and observe the answer.
+
+### 27.4 Chinese embedding model
+
+The example configures:
+
+```text
+model: BAAI/bge-small-zh-v1.5
+device: CPU
+normalize_embeddings: true
+```
+
+The language choice matters: the source and query are Chinese, so the tutorial
+uses a Chinese embedding model. Normalization makes vector magnitudes
+consistent for the selected similarity behavior.
+
+### 27.5 In-memory index
+
+The example creates `InMemoryVectorStore` and adds the split documents. Adding
+documents invokes the embedding model, then stores vectors together with their
+text.
+
+The index disappears when the process exits. This is suitable for learning but
+not durable knowledge management.
+
+### 27.6 Query and top-k retrieval
+
+The tutorial asks:
+
+```text
+What examples are given in the article?
+```
+
+It calls similarity search with `k=3`, so the three nearest chunks become the
+candidate context.
+
+### 27.7 Context assembly
+
+The retrieved `page_content` values are joined with two newline characters.
+
+The double newline is intentional: it visually and semantically separates
+chunks like paragraphs, making it easier for the model to recognize independent
+context units than if every chunk were joined into one continuous line.
+
+For a production system, context assembly may also include source labels,
+ordering, deduplication, token limits, and conflict handling.
+
+### 27.8 Prompt template
+
+The prompt tells the model to:
+
+- Answer from the provided context.
+- Base the answer completely on that context.
+- Return an explicit “cannot answer from the supplied context” message when the
+  evidence is insufficient.
+
+The template has separate `context` and `question` inputs. This is the basic
+grounding contract.
+
+### 27.9 Chat model configuration
+
+The tutorial demonstrates an OpenAI-compatible chat client with:
+
+- Model: `glm-4.7-flash-free`
+- Temperature: `0.7`
+- Maximum output tokens: `2048`
+- API key loaded from an environment variable
+- AIHubmix-compatible base URL
+
+Temperature controls output randomness, not factual correctness. A higher value
+can increase variation; it is usually worth using a lower value for deterministic
+knowledge QA experiments.
+
+`max_tokens` limits generated output, not the entire prompt. The model's full
+context window must accommodate instructions, retrieved chunks, question, and
+generated tokens.
+
+### 27.10 Invocation
+
+The question and joined context are formatted into the prompt, then the chat
+client's `invoke` method returns an AI message. Printing that object shows more
+than the answer text, which leads to the response-metadata lesson below.
+
+### 27.11 What the first successful answer demonstrates
+
+The source document used by the tutorial is about reinforcement learning. The
+question asks which examples it contains, and the retrieved context supports an
+answer covering:
+
+- A newborn antelope learning to stand and run by trial and error
+- Stock trading strategies adapting to market feedback
+- Atari games such as Breakout and Pong
+- Choosing a familiar restaurant versus exploring a new one
+- Reusing a known advertising strategy versus testing another
+- Drilling at a known oil location versus exploring a potentially larger field
+- Repeating a safe game tactic versus trying a new move in Street Fighter
+
+The examples illustrate trial and error, reward, delayed reward, and especially
+the exploration-versus-exploitation trade-off. Their purpose in Chapter 1 is
+not to teach reinforcement learning deeply. They make the RAG result easy to
+inspect: the answer should enumerate facts that visibly exist in the retrieved
+article instead of relying on general model memory.
+
+## 28. Understanding the LangChain chat response
+
+The raw response contains several fields:
+
+### `content`
+
+This is the actual generated answer. If an application only needs display text,
+this is normally the primary field to extract.
+
+### `additional_kwargs`
+
+Provider- or framework-specific extra fields appear here. The example includes a
+refusal field indicating that the model did not refuse the request.
+
+### `response_metadata`
+
+This contains operational response details, including:
+
+- Model name
+- Finish reason
+- Provider response ID
+- Service tier when available
+- System fingerprint when provided
+- Log-probability data when requested/supported
+- Token usage
+
+A `finish_reason` of `stop` normally indicates ordinary completion. Other values
+may indicate length limits, tool calls, content filters, or provider-specific
+behavior.
+
+The printed sample reports `deepseek-chat` in `model_name` while the later code
+snippet configures `glm-4.7-flash-free`. That is a useful reason to trust the
+metadata returned for a real call rather than assuming a configured alias is the
+provider's final model identity. Provider routing and tutorial revisions can
+also make examples differ.
+
+### Token usage
+
+The example reports:
+
+- Prompt/input tokens
+- Completion/output tokens
+- Total tokens
+- Cached input-token details where supported
+
+These fields help diagnose latency, context size, and cost.
+
+### `id`
+
+The run or message identifier can help correlate application logs with provider
+logs.
+
+### `usage_metadata`
+
+LangChain also exposes a normalized usage view, which may repeat token data from
+the provider-specific metadata in a framework-friendly shape.
+
+### My takeaway
+
+Do not display the entire message object as the user-facing answer. Extract
+`content`, but preserve selected metadata separately for tracing, usage analysis,
+and debugging.
+
+## 29. Detailed notes on the LlamaIndex alternative
+
+Chapter 1 shows LlamaIndex as a lower-code way to express the same RAG idea.
+
+The example performs these steps:
+
+1. Configure global `Settings.llm` with an `OpenAILike` chat provider.
+2. Configure `Settings.embed_model` with the Hugging Face embedding model.
+3. Load the Markdown source using `SimpleDirectoryReader`.
+4. Build `VectorStoreIndex` from the documents.
+5. Convert the index into a query engine.
+6. Inspect the engine's prompts.
+7. Submit the same question and print the response.
+
+LlamaIndex hides more of the loading, transformation, index, and query-engine
+wiring. That is convenient, but I should still ask:
+
+- What chunking defaults are being used?
+- What retrieval count and similarity behavior are used?
+- How is context assembled?
+- What prompt is generated?
+- Where is metadata preserved?
+- How can each stage be evaluated or replaced?
+
+Lower code does not remove the underlying RAG decisions; it moves them into
+framework defaults.
+
+## 30. Exercises and learning checkpoints from Chapter 1
+
+### Original exercise 1: extract only the answer
+
+The LangChain result includes content and metadata. Change the example so it
+prints only the `content` value, while deciding which metadata should be logged
+separately.
+
+### Original exercise 2: change chunk parameters
+
+Modify `chunk_size` and `chunk_overlap`. Record:
+
+- Number of chunks
+- Retrieved chunk contents
+- Top-k ranks
+- Prompt size
+- Final answer changes
+
+This turns chunking from a magic default into an observable design decision.
+
+### Original exercise 3: explain the LlamaIndex code
+
+Add comments that identify loading, embedding, indexing, query-engine creation,
+prompt inspection, retrieval, and generation. The goal is to see the four RAG
+stages even when a framework compresses them into a few calls.
+
+### Additional checkpoint: interpret metadata
+
+Explain `content`, `finish_reason`, input tokens, output tokens, cached tokens,
+model name, and run ID in your own words.
+
+### Additional checkpoint: compare frameworks
+
+Implement the same question in LangChain and LlamaIndex, then compare:
+
+- Amount of explicit code
+- Visibility of defaults
+- Ease of tracing retrieved chunks
+- Ease of changing one component
+- Shape of the final response
+
+## 31. Final takeaways
 
 The most important things I learned are:
 
@@ -528,7 +1215,36 @@ The most important things I learned are:
 6. Citations provide provenance, but faithfulness still needs evaluation.
 7. Abstention and provider failure are different states.
 8. Naive RAG is a useful baseline, not a production-complete architecture.
-9. Traces and tests are necessary before optimization.
-10. Better RAG comes from measuring each stage instead of blindly changing the
-    language model.
+9. Advanced RAG adds pre- and post-retrieval optimization; Modular RAG adds
+   dynamically composed routing, transformation, fusion, and correction.
+10. RAG is usually the right answer to missing or changing knowledge, while
+    fine-tuning is usually aimed at changing repeated behavior.
+11. Retrieval relevance and generation quality need separate measurements.
+12. Multi-hop questions expose the limitations of a single similarity search.
+13. Long context can complement retrieval but does not remove knowledge
+    selection, access control, updates, latency, or cost concerns.
+14. Risk controls must match the consequence of a wrong answer; RAG does not
+    make legal or decision-making systems safe by itself.
+15. Reproducible environments, protected API keys, and response metadata are
+    part of operating the tutorial correctly.
+16. Traces and tests are necessary before optimization. Better RAG comes from
+    measuring each stage instead of blindly changing the language model.
 
+## 32. Further reading cited in Chapter 1
+
+These are the conceptual references and example project cited by the chapter:
+
+- Genesis, J. (2025), [Retrieval-Augmented Generation: Methods, Applications,
+  and Challenges](https://www.researchgate.net/publication/391141346_Retrieval-Augmented_Generation_Methods_Applications_and_Challenges)
+- Gao et al. (2023), [Retrieval-Augmented Generation for Large Language Models:
+  A Survey](https://arxiv.org/abs/2312.10997)
+- Lewis et al. (2020), [Retrieval-Augmented Generation for Knowledge-Intensive
+  NLP Tasks](https://arxiv.org/abs/2005.11401)
+- Gao et al. (2024), [Modular RAG: Transforming RAG Systems into LEGO-like
+  Reconfigurable Frameworks](https://arxiv.org/abs/2407.21059)
+- [TinyRAG](https://github.com/KMnO4-zx/TinyRAG), the small open-source example
+  referenced as a beginner-friendly implementation
+
+The implementation walkthrough also uses the official concepts exposed by
+[LangChain](https://python.langchain.com/docs/introduction/) and
+[LlamaIndex](https://docs.llamaindex.ai/en/stable/).
