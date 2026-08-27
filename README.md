@@ -70,11 +70,14 @@ The answer should say **15 minutes** and cite `fixture:atlas-support`.
 ## Commands
 
 ```bash
-make init       # bootstrap a clean checkout
-make init-postgres # create and migrate the local PostgreSQL 18 database
+make demo-setup # one-time Python, dependency, and database setup for all chapters
+make demo       # one cumulative server; browse chapter-tagged endpoints in /docs
+make demo-secure # restart the cumulative server with disposable Chapter 7 tokens
+make init       # lower-level environment bootstrap
+make init-postgres # lower-level database initialization
 make migrate    # apply pending Alembic migrations
 make serve      # FastAPI and Gradio in one process
-make demo CHAPTER=4 # start a chapter-focused demo with guided next steps
+make demo-chapter CHAPTER=4 # optional focus on the same cumulative app
 make doctor     # models endpoint, chat completion, and embedding checks
 make test       # deterministic tests; network sockets are disabled
 make test-live  # optional provider smoke test (see docs/quick-start.md)
@@ -84,18 +87,18 @@ make check      # lint, typecheck, and deterministic tests
 uv run lke openapi  # export .artifacts/openapi.json
 ```
 
-List or launch the cumulative chapter demos directly:
+The shortest demo flow is one setup and one server:
 
 ```bash
-./scripts/demo_chapter.sh list
-./scripts/demo_chapter.sh 1
-./scripts/demo_chapter.sh 7
+make demo-setup  # once
+make demo        # every normal demo
 ```
 
-Chapters 2–7 apply migrations before launch. Chapter 7 generates disposable
-administrator/member tokens, prints API examples, and uses the secure API-only
-delivery mode. See [Chapter demo launcher](docs/chapter-demos.md) for the focus
-and prerequisites of each chapter.
+Open `/docs` and expand the Chapter 1–7 tags; no chapter checkout, dependency
+installation, or service restart is needed. `make demo-secure` is the separate
+Chapter 7 authorization demonstration because secure mode intentionally disables
+direct-service Gradio callbacks. The older `make demo CHAPTER=4` form remains an
+optional focused guide. See [Chapter demo launcher](docs/chapter-demos.md).
 
 ## Chapters 2-7 capabilities and boundaries
 

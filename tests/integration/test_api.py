@@ -68,6 +68,30 @@ def test_openapi_contains_query_contract(client: TestClient) -> None:
     assert "schema_name" in query_schema["properties"]
     assert "/api/v1/evaluations/runs" in contract["paths"]
     assert "EvaluationRunResponse" in contract["components"]["schemas"]
+    assert [item["name"] for item in contract["tags"]] == [
+        "Chapter 1 · Baseline RAG",
+        "Chapter 2 · Ingestion",
+        "Chapter 3 · Indexing",
+        "Chapter 4 · Retrieval",
+        "Chapter 5 · Generation",
+        "Chapter 6 · Evaluation",
+        "Chapter 7 · Security",
+    ]
+    assert contract["paths"]["/api/v1/query"]["post"]["tags"] == [
+        "Chapter 1 · Baseline RAG",
+        "Chapter 4 · Retrieval",
+        "Chapter 5 · Generation",
+    ]
+    assert contract["paths"]["/api/v1/audit-events"]["get"]["tags"] == [
+        "Chapter 7 · Security"
+    ]
+    http_methods = {"get", "post", "put", "patch", "delete"}
+    assert not [
+        (path, method)
+        for path, path_item in contract["paths"].items()
+        for method, operation in path_item.items()
+        if method in http_methods and not operation.get("tags")
+    ]
 
 
 def test_evaluation_dataset_run_faults_and_comparison_are_persisted(

@@ -22,7 +22,7 @@ from local_lke.rag import RAGPipeline
 from local_lke.retrieval import AdvancedRetrievalService, StructuredDataService
 from local_lke.security import SecurityService
 from local_lke.settings import Settings, get_settings
-from local_lke.web.api import create_router, install_error_handlers
+from local_lke.web.api import OPENAPI_TAGS, create_router, install_error_handlers
 from local_lke.web.workbench import build_workbench
 
 
@@ -73,6 +73,7 @@ def create_app(
         title="Local LKE RAG API",
         version="0.7.0",
         description="Chapter 7 governed RAG with collection authorization and audit evidence.",
+        openapi_tags=OPENAPI_TAGS,
         lifespan=lifespan,
     )
     app.state.pipeline = resolved_pipeline

@@ -78,6 +78,42 @@ from local_lke.security import (
     SecurityService,
 )
 
+CHAPTER_1 = "Chapter 1 · Baseline RAG"
+CHAPTER_2 = "Chapter 2 · Ingestion"
+CHAPTER_3 = "Chapter 3 · Indexing"
+CHAPTER_4 = "Chapter 4 · Retrieval"
+CHAPTER_5 = "Chapter 5 · Generation"
+CHAPTER_6 = "Chapter 6 · Evaluation"
+CHAPTER_7 = "Chapter 7 · Security"
+
+OPENAPI_TAGS = [
+    {"name": CHAPTER_1, "description": "Health, fixture query, streaming, and citations."},
+    {
+        "name": CHAPTER_2,
+        "description": "Collections, safe uploads, jobs, immutable versions, and previews.",
+    },
+    {
+        "name": CHAPTER_3,
+        "description": "Persistent vector indexes, retrieval lab, and multimodal search.",
+    },
+    {
+        "name": CHAPTER_4,
+        "description": "Hybrid/corrective retrieval and allowlisted structured queries.",
+    },
+    {
+        "name": CHAPTER_5,
+        "description": "Validated output modes, evidence registry, citations, and SSE.",
+    },
+    {
+        "name": CHAPTER_6,
+        "description": "Evaluation datasets, runs, fault injection, comparisons, and gates.",
+    },
+    {
+        "name": CHAPTER_7,
+        "description": "Bearer authentication, collection ACLs, and audit evidence.",
+    },
+]
+
 
 def create_router(
     pipeline: RAGPipeline,
@@ -91,7 +127,7 @@ def create_router(
 ) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/healthz", response_model=HealthResponse)
+    @router.get("/healthz", response_model=HealthResponse, tags=[CHAPTER_1])
     def health() -> HealthResponse:
         components: dict[str, ComponentHealth] = {}
         checks = {
@@ -123,6 +159,7 @@ def create_router(
         "/query",
         response_model=AnswerResponse,
         responses={503: {"model": ErrorResponse}},
+        tags=[CHAPTER_1, CHAPTER_4, CHAPTER_5],
     )
     def query(payload: QueryRequest, request: Request) -> AnswerResponse:
         principal = security.principal(request)
@@ -144,7 +181,7 @@ def create_router(
             )
         return retrieval.query(payload)
 
-    @api.post("/query/stream")
+    @api.post("/query/stream", tags=[CHAPTER_1, CHAPTER_5])
     def stream_query(payload: QueryRequest, request: Request) -> StreamingResponse:
         principal = security.principal(request)
         if payload.collection_id is not None:
@@ -198,7 +235,11 @@ def create_router(
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
-    @api.get("/sources/{source_id}", response_class=PlainTextResponse)
+    @api.get(
+        "/sources/{source_id}",
+        response_class=PlainTextResponse,
+        tags=[CHAPTER_1, CHAPTER_5],
+    )
     def source(source_id: str, request: Request) -> PlainTextResponse:
         if source_id.startswith("version:"):
             try:
@@ -223,6 +264,7 @@ def create_router(
         "/collections",
         response_model=CollectionResponse,
         status_code=201,
+        tags=[CHAPTER_2],
     )
     def create_collection(payload: CollectionCreate, request: Request) -> CollectionResponse:
         principal = security.principal(request)
@@ -239,7 +281,7 @@ def create_router(
         )
         return result
 
-    @api.get("/collections", response_model=list[CollectionResponse])
+    @api.get("/collections", response_model=list[CollectionResponse], tags=[CHAPTER_2])
     def list_collections(request: Request) -> list[CollectionResponse]:
         principal = security.principal(request)
         allowed_ids = security.accessible_collection_ids(principal)
@@ -253,6 +295,7 @@ def create_router(
         "/collections/{collection_id}/documents",
         response_model=list[IngestionJobResponse],
         status_code=202,
+        tags=[CHAPTER_2],
     )
     async def upload_documents(
         collection_id: UUID,
@@ -304,7 +347,7 @@ def create_router(
             background_tasks.add_task(_process_and_index, ingestion, indexing, job.id)
         return jobs
 
-    @api.get("/jobs/{job_id}", response_model=IngestionJobResponse)
+    @api.get("/jobs/{job_id}", response_model=IngestionJobResponse, tags=[CHAPTER_2])
     def get_job(job_id: UUID, request: Request) -> IngestionJobResponse:
         security.authorize_collection(
             security.principal(request),
@@ -314,7 +357,11 @@ def create_router(
         )
         return ingestion.get_job(job_id)
 
-    @api.post("/jobs/{job_id}/retry", response_model=IngestionJobResponse)
+    @api.post(
+        "/jobs/{job_id}/retry",
+        response_model=IngestionJobResponse,
+        tags=[CHAPTER_2],
+    )
     def retry_job(job_id: UUID, request: Request) -> IngestionJobResponse:
         security.authorize_collection(
             security.principal(request),
@@ -330,6 +377,7 @@ def create_router(
     @api.get(
         "/collections/{collection_id}/documents",
         response_model=list[DocumentResponse],
+        tags=[CHAPTER_2],
     )
     def list_documents(collection_id: UUID, request: Request) -> list[DocumentResponse]:
         security.authorize_collection(
@@ -343,6 +391,7 @@ def create_router(
     @api.get(
         "/document-versions/{version_id}/preview",
         response_model=ParserPreviewResponse,
+        tags=[CHAPTER_2],
     )
     def preview_version(version_id: UUID, request: Request) -> ParserPreviewResponse:
         security.authorize_collection(
@@ -353,7 +402,11 @@ def create_router(
         )
         return ingestion.preview(version_id)
 
-    @api.delete("/documents/{document_id}", response_model=DocumentResponse)
+    @api.delete(
+        "/documents/{document_id}",
+        response_model=DocumentResponse,
+        tags=[CHAPTER_2],
+    )
     def delete_document(
         document_id: UUID, request: Request, reason: str = "deleted by user"
     ) -> DocumentResponse:
@@ -368,6 +421,7 @@ def create_router(
     @api.post(
         "/document-versions/{version_id}/index",
         response_model=IndexingJobResponse,
+        tags=[CHAPTER_3],
     )
     def index_version(
         version_id: UUID, request: Request, force: bool = False
@@ -383,6 +437,7 @@ def create_router(
     @api.post(
         "/collections/{collection_id}/index",
         response_model=list[IndexingJobResponse],
+        tags=[CHAPTER_3],
     )
     def index_collection(collection_id: UUID, request: Request) -> list[IndexingJobResponse]:
         security.authorize_collection(
@@ -396,6 +451,7 @@ def create_router(
     @api.get(
         "/collections/{collection_id}/index-state",
         response_model=IndexStateResponse,
+        tags=[CHAPTER_3],
     )
     def index_state(collection_id: UUID, request: Request) -> IndexStateResponse:
         security.authorize_collection(
@@ -406,7 +462,11 @@ def create_router(
         )
         return indexing.state(collection_id)
 
-    @api.get("/indexing-jobs/{job_id}", response_model=IndexingJobResponse)
+    @api.get(
+        "/indexing-jobs/{job_id}",
+        response_model=IndexingJobResponse,
+        tags=[CHAPTER_3],
+    )
     def indexing_job(job_id: UUID, request: Request) -> IndexingJobResponse:
         security.authorize_collection(
             security.principal(request),
@@ -416,7 +476,11 @@ def create_router(
         )
         return indexing.repository.get_job(job_id)
 
-    @api.post("/retrieval-lab", response_model=VectorSearchResponse)
+    @api.post(
+        "/retrieval-lab",
+        response_model=VectorSearchResponse,
+        tags=[CHAPTER_3, CHAPTER_4],
+    )
     def retrieval_lab(payload: VectorSearchRequest, request: Request) -> VectorSearchResponse:
         security.authorize_collection(
             security.principal(request),
@@ -430,6 +494,7 @@ def create_router(
         "/collections/{collection_id}/images",
         response_model=ImageAssetResponse,
         status_code=201,
+        tags=[CHAPTER_3],
     )
     async def upload_image(
         collection_id: UUID,
@@ -453,6 +518,7 @@ def create_router(
     @api.post(
         "/collections/{collection_id}/images/search/text",
         response_model=ImageSearchResponse,
+        tags=[CHAPTER_3],
     )
     def text_to_image_search(
         collection_id: UUID,
@@ -471,6 +537,7 @@ def create_router(
     @api.post(
         "/collections/{collection_id}/images/search/image",
         response_model=ImageSearchResponse,
+        tags=[CHAPTER_3],
     )
     async def image_to_image_search(
         collection_id: UUID,
@@ -493,7 +560,11 @@ def create_router(
             top_k,
         )
 
-    @api.get("/images/{image_id}/content", response_class=FileResponse)
+    @api.get(
+        "/images/{image_id}/content",
+        response_class=FileResponse,
+        tags=[CHAPTER_3],
+    )
     def image_content(image_id: UUID, request: Request) -> FileResponse:
         security.authorize_collection(
             security.principal(request),
@@ -508,6 +579,7 @@ def create_router(
         "/collections/{collection_id}/structured-tables",
         response_model=StructuredTableResponse,
         status_code=201,
+        tags=[CHAPTER_4],
     )
     async def upload_structured_table(
         collection_id: UUID,
@@ -530,6 +602,7 @@ def create_router(
     @api.get(
         "/collections/{collection_id}/structured-tables",
         response_model=list[StructuredTableResponse],
+        tags=[CHAPTER_4],
     )
     def list_structured_tables(
         collection_id: UUID, request: Request
@@ -545,6 +618,7 @@ def create_router(
     @api.post(
         "/structured/query",
         response_model=StructuredQueryResponse,
+        tags=[CHAPTER_4],
     )
     def structured_query(
         payload: StructuredQueryRequest, request: Request
@@ -561,6 +635,7 @@ def create_router(
         "/evaluations/datasets",
         response_model=EvaluationDatasetResponse,
         status_code=201,
+        tags=[CHAPTER_6],
     )
     def create_evaluation_dataset(
         payload: EvaluationDatasetCreate,
@@ -574,6 +649,7 @@ def create_router(
     @api.get(
         "/evaluations/datasets",
         response_model=list[EvaluationDatasetResponse],
+        tags=[CHAPTER_6],
     )
     def list_evaluation_datasets(request: Request) -> list[EvaluationDatasetResponse]:
         security.require_admin(
@@ -584,6 +660,7 @@ def create_router(
     @api.get(
         "/evaluations/datasets/{dataset_id}",
         response_model=EvaluationDatasetResponse,
+        tags=[CHAPTER_6],
     )
     def get_evaluation_dataset(
         dataset_id: UUID, request: Request
@@ -597,6 +674,7 @@ def create_router(
         "/evaluations/runs",
         response_model=EvaluationRunResponse,
         status_code=201,
+        tags=[CHAPTER_6],
     )
     def run_evaluation(
         payload: EvaluationRunRequest, request: Request
@@ -607,6 +685,7 @@ def create_router(
     @api.get(
         "/evaluations/runs",
         response_model=list[EvaluationRunResponse],
+        tags=[CHAPTER_6],
     )
     def list_evaluation_runs(
         request: Request,
@@ -618,6 +697,7 @@ def create_router(
     @api.get(
         "/evaluations/runs/{run_id}",
         response_model=EvaluationRunResponse,
+        tags=[CHAPTER_6],
     )
     def get_evaluation_run(run_id: UUID, request: Request) -> EvaluationRunResponse:
         security.require_admin(security.principal(request), action="evaluation_run.read")
@@ -626,6 +706,7 @@ def create_router(
     @api.get(
         "/evaluations/compare",
         response_model=EvaluationComparison,
+        tags=[CHAPTER_6],
     )
     def compare_evaluation_runs(
         baseline_run_id: UUID, candidate_run_id: UUID, request: Request
@@ -636,6 +717,7 @@ def create_router(
     @api.get(
         "/evaluations/provider-profile",
         response_model=ProviderCapabilityProfile,
+        tags=[CHAPTER_6],
     )
     def evaluation_provider_profile(request: Request) -> ProviderCapabilityProfile:
         security.require_admin(
@@ -646,6 +728,7 @@ def create_router(
     @api.get(
         "/collections/{collection_id}/access",
         response_model=list[CollectionAccessResponse],
+        tags=[CHAPTER_7],
     )
     def list_collection_access(
         collection_id: UUID, request: Request
@@ -661,6 +744,7 @@ def create_router(
     @api.put(
         "/collections/{collection_id}/access",
         response_model=CollectionAccessResponse,
+        tags=[CHAPTER_7],
     )
     def grant_collection_access(
         collection_id: UUID, payload: CollectionGrantRequest, request: Request
@@ -677,6 +761,7 @@ def create_router(
     @api.delete(
         "/collections/{collection_id}/access/{principal_id}",
         status_code=204,
+        tags=[CHAPTER_7],
     )
     def revoke_collection_access(
         collection_id: UUID, principal_id: str, request: Request
@@ -691,7 +776,11 @@ def create_router(
         security.revoke(principal, collection_id, principal_id)
         return Response(status_code=204)
 
-    @api.get("/audit-events", response_model=list[AuditEventResponse])
+    @api.get(
+        "/audit-events",
+        response_model=list[AuditEventResponse],
+        tags=[CHAPTER_7],
+    )
     def list_audit_events(
         request: Request, limit: Annotated[int, Query(ge=1, le=1000)] = 100
     ) -> list[AuditEventResponse]:
