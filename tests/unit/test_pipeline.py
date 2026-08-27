@@ -21,4 +21,3 @@ def test_stream_orders_retrieval_deltas_and_completion(pipeline: RAGPipeline) ->
     assert types[0] == "retrieval"
     assert "delta" in types
     assert types[-1] == "completion"
-

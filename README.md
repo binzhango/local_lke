@@ -1,22 +1,26 @@
 # Local LKE
 
 Local LKE is an English, executable companion for learning Retrieval-Augmented
-Generation (RAG). Chapter 1 is a deliberately small, in-memory baseline that
-makes the four stages—load, index, retrieve, and generate—visible through one
-FastAPI and Gradio application.
+Generation (RAG). Chapter 2 adds safe, versioned ingestion for Markdown, text,
+and PDF files to the Chapter 1 in-memory RAG baseline. One FastAPI and Gradio
+application exposes collections, ingestion jobs, parser previews, chunks,
+version history, and cited chat.
 
-The bundled fixtures and deterministic tests need no database, model server, or
-network access. Interactive answers use a model served locally by LM Studio,
-`llama-server`, or another OpenAI-compatible endpoint.
+The deterministic suite creates isolated SQLite stores and a temporary local
+PostgreSQL 18 cluster; it needs no model server or network access. Interactive
+answers use a model served locally by LM Studio, `llama-server`, or another
+OpenAI-compatible endpoint.
 
 ## Prerequisites
 
 - macOS or Linux
 - [`uv`](https://docs.astral.sh/uv/) for Python and dependency management
+- PostgreSQL 18 (`brew install postgresql@18` on macOS)
 - Optional for interactive answers: LM Studio or `llama-server`
 
-PostgreSQL is not used by the Chapter 1 baseline. Later chapters will support
-Homebrew `postgresql@18`; no older PostgreSQL installation is required.
+The application uses the explicit Homebrew PostgreSQL 18 binary directory at
+`/opt/homebrew/opt/postgresql@18/bin` by default. No older PostgreSQL
+installation is required.
 
 ## One-command foundation setup
 
@@ -27,6 +31,17 @@ Homebrew `postgresql@18`; no older PostgreSQL installation is required.
 The script installs Python 3.12 through `uv`, installs exactly the locked
 dependencies, creates `.env` from the safe example when needed, and runs an
 offline end-to-end RAG check. It does not overwrite an existing `.env`.
+
+Start and initialize PostgreSQL once:
+
+```bash
+brew services start postgresql@18
+make init-postgres
+```
+
+`make init-postgres` checks the explicit PostgreSQL 18 binaries, creates the
+passwordless local `local_lke` database only when absent, and applies Alembic
+migrations. The committed database URL contains no password.
 
 Then configure and run the local model:
 
@@ -54,6 +69,8 @@ The answer should say **15 minutes** and cite `fixture:atlas-support`.
 
 ```bash
 make init       # bootstrap a clean checkout
+make init-postgres # create and migrate the local PostgreSQL 18 database
+make migrate    # apply pending Alembic migrations
 make serve      # FastAPI and Gradio in one process
 make doctor     # models endpoint, chat completion, and embedding checks
 make test       # deterministic tests; network sockets are disabled
@@ -64,21 +81,35 @@ make check      # lint, typecheck, and deterministic tests
 uv run lke openapi  # export .artifacts/openapi.json
 ```
 
-## Chapter 1 boundaries
+## Chapter 2 capabilities and boundaries
 
-- Two small English fixtures only
-- One in-memory LangChain vector store
-- Local Hugging Face embeddings
-- Local OpenAI-compatible chat model
-- Single user and single collection
-- No uploads, PostgreSQL, authentication, or background jobs yet
+- Named collections and `.md`, `.txt`, and `.pdf` uploads
+- Immutable versions with SHA-256 content and pipeline hashes
+- Markdown hierarchy, text source lines, and PDF page/element preservation
+- Recursive, Markdown-aware, and experimental sentence-semantic chunking
+- Inspectable persistent jobs, parser previews, versions, and chunks
+- Safe local single-user upload boundary with size, MIME, filename, and PDF checks
+- Chapter 1 chat still uses its in-memory fixture index; persisted chunk indexing
+  begins in Chapter 3
+- Authentication and multi-user ACLs remain out of scope
 
-See [the detailed quick start](docs/quick-start.md), [the four-stage code map](docs/architecture.md),
-and [the initial RAG issue baseline](docs/blog-coverage.md).
+See the [Chapter 1 learning notes](docs/chapter-01-knowledge-guide.md),
+[detailed implementation report](docs/chapter-01-implementation.md),
+[quick start](docs/quick-start.md), [four-stage code map](docs/architecture.md),
+and [initial RAG issue baseline](docs/blog-coverage.md).
+For this milestone, see the [Chapter 2 learning notes](docs/chapter-02-knowledge-guide.md),
+[implementation report](docs/chapter-02-implementation.md), and
+[ingestion operations guide](docs/chapter-02-ingestion.md).
 
 ## API
 
 - `GET /healthz` — component-level chat and embedding health
+- `POST/GET /api/v1/collections` — create and list collections
+- `POST /api/v1/collections/{id}/documents` — safely ingest one or more files
+- `GET /api/v1/jobs/{id}` and `POST /api/v1/jobs/{id}/retry` — inspect/retry jobs
+- `GET /api/v1/collections/{id}/documents` — list documents and version history
+- `GET /api/v1/document-versions/{id}/preview` — inspect elements and chunks
+- `DELETE /api/v1/documents/{id}` — soft-delete and deactivate versions
 - `POST /api/v1/query` — synchronous cited answer
 - `POST /api/v1/query/stream` — ordered `start`, `retrieval`, `delta`,
   `completion`, and `error` SSE events

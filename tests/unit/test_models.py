@@ -22,4 +22,3 @@ def test_abstention_can_have_no_citations() -> None:
         trace=TraceSummary(),
     )
     assert response.status is AnswerStatus.ABSTAINED
-

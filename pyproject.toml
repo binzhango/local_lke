@@ -1,11 +1,12 @@
 [project]
 name = "local-lke"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local-first, inspectable RAG workbench and future knowledge-management expert system"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { file = "LICENSE" }
 dependencies = [
+  "alembic>=1.16,<2",
   "fastapi>=0.116,<1",
   "gradio>=5.49,<7",
   "httpx>=0.28,<1",
@@ -14,8 +15,14 @@ dependencies = [
   "langchain-openai>=0.3.33,<2",
   "langchain-text-splitters>=0.3.11,<2",
   "pydantic-settings>=2.10,<3",
+  "psycopg[binary]>=3.2,<4",
+  "pypdf>=5.9,<7",
+  "python-multipart>=0.0.20,<1",
+  "scikit-learn>=1.7,<2",
   "sentence-transformers>=5,<6",
+  "sqlalchemy>=2.0.43,<3",
   "structlog>=25.4,<26",
+  "unstructured[pdf]>=0.18.14,<1",
   "uvicorn[standard]>=0.35,<1",
 ]
 
@@ -28,6 +35,7 @@ dev = [
   "pytest>=8.4,<10",
   "pytest-asyncio>=1.1,<2",
   "pytest-socket>=0.7,<1",
+  "reportlab>=4.4,<5",
   "ruff>=0.12,<1",
 ]
 

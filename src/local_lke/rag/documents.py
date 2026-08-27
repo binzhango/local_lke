@@ -62,4 +62,3 @@ def langchain_document_to_chunk(document: Document) -> Chunk:
         ordinal=int(metadata["ordinal"]),
         text=document.page_content,
     )
-

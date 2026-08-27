@@ -1,4 +1,4 @@
-# Chapter 1 Quick Start
+# Chapters 1–2 Quick Start
 
 ## Automated foundation setup
 
@@ -12,6 +12,18 @@ This script is safe to run again. It requires `uv`, ensures Python 3.12 exists,
 runs `uv sync --locked`, creates `.env` only when it is missing, and executes a
 deterministic RAG doctor check. The check uses fake local providers and therefore
 does not contact the internet or require a model server.
+
+Chapter 2 also requires the local PostgreSQL 18 service:
+
+```bash
+brew install postgresql@18
+brew services start postgresql@18
+make init-postgres
+```
+
+The last command creates `local_lke` only when absent and applies the Alembic
+migrations. See [the ingestion guide](chapter-02-ingestion.md) for alternate
+paths, parser dependencies, and database troubleshooting.
 
 If `uv` is not installed, follow the official instructions at
 <https://docs.astral.sh/uv/getting-started/installation/> and rerun the script.
@@ -40,7 +52,8 @@ make serve
 ```
 
 `make doctor` checks the models endpoint, sends a minimal completion, and
-initializes the local embedding model. The first embedding initialization may
+initializes the local embedding model. It also verifies the explicit PostgreSQL
+18 binary and database connection. The first embedding initialization may
 download `sentence-transformers/all-MiniLM-L6-v2`; later runs use the local cache.
 
 ## Serving an Unsloth GGUF
@@ -112,3 +125,8 @@ The default embedding model must be downloaded once. Ensure you have network
 access for that first initialization, or point `LKE_EMBEDDING_MODEL` to an
 already-cached sentence-transformers model.
 
+### PostgreSQL cannot be reached
+
+Run `/opt/homebrew/opt/postgresql@18/bin/pg_isready`, then start the service with
+`brew services start postgresql@18`. Run `make init-postgres` again to create the
+database and apply migrations; the command is idempotent.

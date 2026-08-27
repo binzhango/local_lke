@@ -29,4 +29,3 @@ def split_documents(
                 )
             )
     return chunks
-

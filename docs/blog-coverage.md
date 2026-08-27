@@ -1,21 +1,20 @@
 # RAG Issue Coverage
 
-Chapter 1 establishes a measured naive-RAG baseline. No issue is claimed as
-resolved or mitigated yet; subsequent chapters must provide tests and evidence
-before changing a status.
+Chapter 2 moves four canonical reliability issues beyond the Chapter 1
+naive-RAG baseline. “Mitigated” means a concrete local control and deterministic
+test exist; it does not mean the underlying research problem is eliminated.
 
-| # | Issue | Status after Chapter 1 | Baseline observation |
+| # | Blog issue | Status after Chapter 2 | Evidence and residual risk |
 |---:|---|---|---|
-| 1 | Document ingestion quality | Open | Only two controlled fixtures are loaded. |
-| 2 | Chunking quality | Open | One recursive strategy is observable but not evaluated. |
-| 3 | Embedding suitability | Open | One small local embedding model is used. |
-| 4 | Retrieval relevance | Open | Vector top-k is traced without a relevance benchmark. |
-| 5 | Missing lexical retrieval | Open | There is no keyword or hybrid search. |
-| 6 | Missing reranking | Open | Similarity order is passed directly to generation. |
-| 7 | Context construction | Open | Evidence is delimited but not optimized. |
-| 8 | Hallucination and grounding | Open | Citations are attached, but faithfulness is not measured. |
-| 9 | Abstention reliability | Open | The schema supports abstention; policy quality is unevaluated. |
-| 10 | Evaluation coverage | Open | Known-answer tests are not a full RAG evaluation set. |
-| 11 | Observability and cost | Open | Stage timings exist; token and resource metrics do not. |
-| 12 | Knowledge relationships | Open | There is no graph retrieval or entity model. |
-
+| 1 | Corpus lacks the answer | Open | Answerability and corrective retrieval begin in Chapter 4. |
+| 2 | Answer missing from top results | Open | Hybrid recall and reranking begin in Chapter 4. |
+| 3 | Evidence lost during assembly | Open | Parent expansion and context packing begin in Chapters 3–4. |
+| 4 | Complex content is corrupted | Partially mitigated | Markdown headings, source lines, PDF pages/categories, and table elements are preserved and golden-tested. OCR, columns, and unusual layouts still vary by host and document. |
+| 5 | Chunk granularity mismatch | Partially mitigated | Recursive, heading-aware, and experimental sentence-semantic strategies preserve parent provenance. Retrieval impact is not measured until Chapter 3. |
+| 6 | Multi-part answer incomplete | Open | Decomposition and coverage validation begin in Chapter 4. |
+| 7 | Structured data treated as prose | Open | Safe structured CSV ingestion begins in Chapter 4. |
+| 8 | Wrong output format | Open | Output contracts and repair begin in Chapter 5. |
+| 9 | Ingestion too costly or slow | Partially mitigated | Content/pipeline hashes make unchanged re-ingestion perform zero parser and chunk writes; batched embedding remains for Chapter 3. |
+| 10 | Provider fallback differs | Open | Capability profiles and fault injection begin in Chapter 6. |
+| 11 | Security/privacy risks | Partially mitigated | Loopback binding plus extension/MIME/signature, UTF-8, path, size, encrypted-PDF, and malformed-PDF checks protect the local upload boundary. Authentication and multi-user ACLs remain out of scope. |
+| 12 | No evaluation control plane | Open | The deterministic suite covers ingestion controls; a user-facing evaluation plane begins in Chapter 6. |

@@ -12,4 +12,3 @@ def test_settings_load_prefixed_environment(monkeypatch: object) -> None:
 
 def test_server_defaults_to_loopback() -> None:
     assert Settings(_env_file=None).host == "127.0.0.1"
-

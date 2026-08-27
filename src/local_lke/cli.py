@@ -2,12 +2,15 @@
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 import uvicorn
+from alembic import command
+from alembic.config import Config
 
 from local_lke.errors import ProviderUnavailableError
-from local_lke.factory import create_pipeline
+from local_lke.factory import create_ingestion_service, create_pipeline
 from local_lke.logging import configure_logging
 from local_lke.providers import DeterministicFakeEmbeddings, FakeChatProvider
 from local_lke.rag import RAGPipeline
@@ -25,6 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run only deterministic foundation checks",
     )
+    doctor.add_argument(
+        "--skip-database",
+        action="store_true",
+        help="Skip PostgreSQL binary and connection checks",
+    )
+    subparsers.add_parser("migrate", help="Apply database migrations")
     openapi = subparsers.add_parser("openapi", help="Export the OpenAPI contract")
     openapi.add_argument("--output", default=".artifacts/openapi.json")
     return parser
@@ -37,7 +46,15 @@ def main() -> None:
     if arguments.command == "serve":
         uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
     elif arguments.command == "doctor":
-        raise SystemExit(run_doctor(settings, skip_providers=arguments.skip_providers))
+        raise SystemExit(
+            run_doctor(
+                settings,
+                skip_providers=arguments.skip_providers,
+                skip_database=arguments.skip_database,
+            )
+        )
+    elif arguments.command == "migrate":
+        migrate(settings)
     elif arguments.command == "openapi":
         output = Path(arguments.output)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -48,7 +65,7 @@ def main() -> None:
         print(f"OpenAPI contract written to {output}")
 
 
-def run_doctor(settings: Settings, *, skip_providers: bool) -> int:
+def run_doctor(settings: Settings, *, skip_providers: bool, skip_database: bool = False) -> int:
     print(json.dumps({"configuration": settings.redacted_summary}, indent=2))
     if skip_providers:
         pipeline = RAGPipeline(
@@ -56,9 +73,7 @@ def run_doctor(settings: Settings, *, skip_providers: bool) -> int:
             embeddings=DeterministicFakeEmbeddings(),
             default_top_k=settings.default_top_k,
         )
-        response = pipeline.query(
-            "How quickly does Atlas acknowledge a priority-one incident?"
-        )
+        response = pipeline.query("How quickly does Atlas acknowledge a priority-one incident?")
         print(
             json.dumps(
                 {
@@ -69,20 +84,42 @@ def run_doctor(settings: Settings, *, skip_providers: bool) -> int:
                 indent=2,
             )
         )
-        return 0
+        failures = 0
+    else:
+        pipeline = create_pipeline(settings)
+        checks = [
+            ("models", pipeline.chat.check_models),
+            ("completion", pipeline.chat.check_completion),
+            ("embeddings", pipeline.embeddings.check_initialization),
+        ]
+        failures = 0
+        for name, check in checks:
+            try:
+                print(f"[ok] {name}: {check()}")
+            except ProviderUnavailableError as exc:
+                failures += 1
+                print(f"[unavailable] {name}: {exc}")
 
-    pipeline = create_pipeline(settings)
-    checks = [
-        ("models", pipeline.chat.check_models),
-        ("completion", pipeline.chat.check_completion),
-        ("embeddings", pipeline.embeddings.check_initialization),
-    ]
-    failures = 0
-    for name, check in checks:
-        try:
-            print(f"[ok] {name}: {check()}")
-        except ProviderUnavailableError as exc:
+    if not skip_database:
+        psql = settings.postgres_bin_directory / "psql"
+        if not psql.is_file():
             failures += 1
-            print(f"[unavailable] {name}: {exc}")
+            print(f"[unavailable] postgresql: expected PostgreSQL 18 binary at {psql}")
+        else:
+            version_result = subprocess.run(
+                [str(psql), "--version"], capture_output=True, text=True, check=False
+            )
+            print(f"[ok] postgresql binary: {version_result.stdout.strip()}")
+        try:
+            print(f"[ok] database: {create_ingestion_service(settings).check_health()}")
+        except Exception as exc:
+            failures += 1
+            print(f"[unavailable] database: {exc}")
     return 1 if failures else 0
 
+
+def migrate(settings: Settings) -> None:
+    configuration = Config("alembic.ini")
+    configuration.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
+    command.upgrade(configuration, "head")
+    print("Database migrations applied.")

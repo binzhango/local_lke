@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from fastapi.testclient import TestClient
 
 from local_lke.errors import ProviderUnavailableError
+from local_lke.ingestion import IngestionService
 from local_lke.providers import DeterministicFakeEmbeddings, FakeChatProvider
 from local_lke.rag import RAGPipeline
 from local_lke.settings import Settings
@@ -32,13 +33,15 @@ class UnavailableChat(FakeChatProvider):
         yield "unreachable"
 
 
-def test_missing_model_maps_to_actionable_error_without_stack_trace() -> None:
+def test_missing_model_maps_to_actionable_error_without_stack_trace(
+    ingestion: IngestionService,
+) -> None:
     pipeline = RAGPipeline(
         chat=UnavailableChat(),
         embeddings=DeterministicFakeEmbeddings(),
     )
     settings = Settings(_env_file=None, chat_model="missing-model")
-    with TestClient(create_app(settings, pipeline)) as client:
+    with TestClient(create_app(settings, pipeline, ingestion)) as client:
         response = client.post(
             "/api/v1/query",
             json={"question": "What is the priority-one acknowledgement target?"},
@@ -53,13 +56,15 @@ def test_missing_model_maps_to_actionable_error_without_stack_trace() -> None:
     assert "traceback" not in response.text.lower()
 
 
-def test_missing_model_health_is_degraded_not_a_crash() -> None:
+def test_missing_model_health_is_degraded_not_a_crash(
+    ingestion: IngestionService,
+) -> None:
     pipeline = RAGPipeline(
         chat=UnavailableChat(),
         embeddings=DeterministicFakeEmbeddings(),
     )
     settings = Settings(_env_file=None, chat_model="missing-model")
-    with TestClient(create_app(settings, pipeline)) as client:
+    with TestClient(create_app(settings, pipeline, ingestion)) as client:
         response = client.get("/healthz")
 
     assert response.status_code == 200

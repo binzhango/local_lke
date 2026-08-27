@@ -17,4 +17,3 @@ def test_live_local_provider_smoke() -> None:
     assert pipeline.chat.check_models()
     assert pipeline.chat.check_completion()
     assert pipeline.embeddings.check_initialization()
-

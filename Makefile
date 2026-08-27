@@ -1,7 +1,13 @@
-.PHONY: init serve doctor test test-live lint typecheck check
+.PHONY: init init-postgres migrate serve doctor test test-live lint typecheck check
 
 init:
 	./scripts/init_environment.sh
+
+init-postgres:
+	./scripts/init_postgres.sh
+
+migrate:
+	uv run --locked lke migrate
 
 serve:
 	uv run --locked lke serve

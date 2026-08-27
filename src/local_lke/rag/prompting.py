@@ -25,4 +25,3 @@ Rules:
 
 Question: {question}
 Concise answer:"""
-

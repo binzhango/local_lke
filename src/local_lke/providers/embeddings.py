@@ -97,4 +97,3 @@ class DeterministicFakeEmbeddings:
             vector[index] += sign
         norm = math.sqrt(sum(value * value for value in vector))
         return [value / norm for value in vector] if norm else vector
-

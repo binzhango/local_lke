@@ -23,12 +23,12 @@ else
 fi
 
 echo "[4/4] Running offline foundation checks..."
-uv run --locked lke doctor --skip-providers
+uv run --locked lke doctor --skip-providers --skip-database
 
 echo
 echo "Foundation is ready."
-echo "1. Load a model in LM Studio and enable its local server."
-echo "2. Set LKE_CHAT_MODEL in .env to the model identifier exposed by that server."
-echo "3. Run 'make doctor', then 'make serve'."
-echo "4. Open http://127.0.0.1:8000/app"
-
+echo "1. Run 'make init-postgres' to create/migrate the local PostgreSQL 18 database."
+echo "2. Load a model in LM Studio and enable its local server."
+echo "3. Set LKE_CHAT_MODEL in .env to the model identifier exposed by that server."
+echo "4. Run 'make doctor', then 'make serve'."
+echo "5. Open http://127.0.0.1:8000/app"
