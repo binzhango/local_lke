@@ -75,3 +75,29 @@ class GenerationError(LKEError):
         super().__init__(message)
         if code is not None:
             self.code = code
+
+
+class EvaluationError(LKEError):
+    """An evaluation dataset, run, or regression gate was invalid."""
+
+    code = "evaluation_error"
+    component = "evaluation"
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        if code is not None:
+            self.code = code
+
+
+class AuthenticationError(LKEError):
+    """A request did not present a configured Chapter 7 bearer credential."""
+
+    code = "authentication_required"
+    component = "security"
+
+
+class AuthorizationError(LKEError):
+    """An authenticated principal cannot perform an operation."""
+
+    code = "permission_denied"
+    component = "security"

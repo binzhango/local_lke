@@ -35,6 +35,7 @@ from local_lke.storage import SqlAlchemyIngestionRepository, create_session_fact
 POSTGRES_BIN = Path("/opt/homebrew/opt/postgresql@18/bin")
 EXPECTED_TABLES = {
     "alembic_version",
+    "audit_events",
     "chunks",
     "collections",
     "document_elements",
@@ -43,7 +44,10 @@ EXPECTED_TABLES = {
     "ingestion_jobs",
     "indexing_jobs",
     "embedding_profiles",
+    "evaluation_datasets",
+    "evaluation_runs",
     "collection_index_profiles",
+    "collection_access",
     "vector_nodes",
     "image_assets",
     "image_embeddings",
@@ -121,6 +125,18 @@ def test_migrations_apply_to_an_empty_postgresql_18_database() -> None:
                     and item["dialect_options"]["postgresql_using"] == "hnsw"
                     for item in vector_indexes
                 )
+                assert "token" not in {
+                    column["name"] for column in inspect(engine).get_columns("collection_access")
+                }
+                assert "token" not in {
+                    column["name"] for column in inspect(engine).get_columns("audit_events")
+                }
+                access_checks = inspect(engine).get_check_constraints("collection_access")
+                audit_checks = inspect(engine).get_check_constraints("audit_events")
+                assert any(
+                    item["name"] == "ck_collection_access_role" for item in access_checks
+                )
+                assert any(item["name"] == "ck_audit_events_outcome" for item in audit_checks)
                 with engine.connect() as connection:
                     assert connection.exec_driver_sql(
                         "SELECT extversion FROM pg_extension WHERE extname='vector'"

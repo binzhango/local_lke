@@ -8,6 +8,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -46,6 +47,51 @@ class CollectionRecord(Base):
     )
 
     documents: Mapped[list["LogicalDocumentRecord"]] = relationship(back_populates="collection")
+
+
+class CollectionAccessRecord(Base):
+    __tablename__ = "collection_access"
+    __table_args__ = (
+        UniqueConstraint(
+            "collection_id", "principal_id", name="uq_collection_access_principal"
+        ),
+        CheckConstraint(
+            "role IN ('owner', 'editor', 'viewer')",
+            name="ck_collection_access_role",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    principal_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    granted_by: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class AuditEventRecord(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('allowed', 'denied')",
+            name="ck_audit_events_outcome",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    principal_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    resource_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(120))
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False, index=True
+    )
 
 
 class LogicalDocumentRecord(Base):
@@ -414,3 +460,44 @@ class StructuredTableRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
+
+
+class EvaluationDatasetRecord(Base):
+    __tablename__ = "evaluation_datasets"
+    __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_evaluation_dataset_version"),
+        UniqueConstraint("content_sha256", name="uq_evaluation_dataset_content"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    cases: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class EvaluationRunRecord(Base):
+    __tablename__ = "evaluation_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    dataset_id: Mapped[str] = mapped_column(
+        ForeignKey("evaluation_datasets.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    baseline_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("evaluation_runs.id", ondelete="RESTRICT")
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="running")
+    configuration_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    case_results: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    gate: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

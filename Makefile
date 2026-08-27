@@ -1,4 +1,4 @@
-.PHONY: init init-postgres migrate serve doctor test test-live lint typecheck check
+.PHONY: init init-postgres migrate serve demo doctor test test-live lint typecheck check
 
 init:
 	./scripts/init_environment.sh
@@ -11,6 +11,10 @@ migrate:
 
 serve:
 	uv run --locked lke serve
+
+demo:
+	@test -n "$(CHAPTER)" || (echo "Usage: make demo CHAPTER=1..7" && exit 2)
+	./scripts/demo_chapter.sh "$(CHAPTER)"
 
 doctor:
 	uv run --locked lke doctor

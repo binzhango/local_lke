@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     structured_max_csv_rows: int = Field(default=50_000, ge=1, le=1_000_000)
     structured_max_columns: int = Field(default=100, ge=1, le=1000)
     structured_statement_timeout_ms: int = Field(default=3000, ge=100, le=60_000)
+    auth_enabled: bool = False
+    auth_credentials_json: SecretStr = SecretStr("[]")
 
     @field_validator("default_parser_strategy")
     @classmethod
@@ -122,6 +124,7 @@ class Settings(BaseSettings):
             "structured_max_csv_rows": self.structured_max_csv_rows,
             "structured_max_columns": self.structured_max_columns,
             "structured_statement_timeout_ms": self.structured_statement_timeout_ms,
+            "auth_enabled": str(self.auth_enabled),
         }
 
 

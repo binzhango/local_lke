@@ -1,4 +1,4 @@
-# Chapters 1-5 Quick Start
+# Chapters 1-7 Quick Start
 
 ## Automated foundation setup
 
@@ -149,6 +149,36 @@ LKE_GENERATION_MAX_REPAIR_ATTEMPTS=1
 
 See [Chapter 5 generation operations](chapter-05-generation.md) for API examples,
 status handling, structured-output troubleshooting, and the streaming contract.
+
+## Chapter 6 evaluation gate
+
+Open Evaluation, create the provided Atlas fixture dataset, copy its dataset ID,
+and run it. Inspect per-case evidence and failures before the aggregate metrics.
+The default gate requires all cases to pass.
+
+Add a baseline run ID only when evaluating the exact same immutable dataset
+version. Quality regression tolerance and latency tolerance are separate;
+latency comparison is opt-in because normal execution timing varies.
+
+See [Chapter 6 evaluation operations](chapter-06-evaluation.md) for dataset JSON,
+API commands, fault scenarios, metric definitions, and baseline comparison.
+
+## Chapter 7 governed API mode
+
+Keep authentication disabled for the original loopback-only learning workflow.
+To exercise the governed API, configure an administrator and at least one member
+with distinct random bearer tokens, then set `LKE_AUTH_ENABLED=true` and restart.
+Every `/api/v1` request then requires `Authorization: Bearer ...`; `/healthz`
+remains public for local supervision.
+
+The principal creating a collection becomes its owner. Owners can grant `viewer`
+or `editor` access. Administrators can access all collections and are the only
+principals allowed to run cross-collection evaluations or read audit events.
+Secure mode does not mount `/app`, because its callbacks call services directly
+and cannot safely carry browser bearer credentials.
+
+See [Chapter 7 security operations](chapter-07-security.md) for configuration,
+role behavior, API examples, token rotation, and audit boundaries.
 
 ## Troubleshooting
 

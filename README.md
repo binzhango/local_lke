@@ -1,11 +1,12 @@
 # Local LKE
 
 Local LKE is an English, executable companion for learning Retrieval-Augmented
-Generation (RAG). Chapters 1-5 now provide a cited baseline, versioned ingestion,
+Generation (RAG). Chapters 1-7 now provide a cited baseline, versioned ingestion,
 persistent pgvector and multimodal indexing, and hybrid, metadata-aware,
-corrective retrieval plus validated generation. One FastAPI and Gradio application exposes collections,
+corrective retrieval, validated generation, regression evaluation, and an opt-in
+governed API boundary. One FastAPI and Gradio application exposes collections,
 ingestion and indexing jobs, retrieval-stage traces, context manifests, image
-search, CSV schemas, safe SQL previews, and cited answers.
+search, CSV schemas, safe SQL previews, cited answers, and persisted evaluation runs.
 
 The deterministic suite creates isolated SQLite stores and a temporary local
 PostgreSQL 18 cluster; it needs no model server or network access. Interactive
@@ -73,6 +74,7 @@ make init       # bootstrap a clean checkout
 make init-postgres # create and migrate the local PostgreSQL 18 database
 make migrate    # apply pending Alembic migrations
 make serve      # FastAPI and Gradio in one process
+make demo CHAPTER=4 # start a chapter-focused demo with guided next steps
 make doctor     # models endpoint, chat completion, and embedding checks
 make test       # deterministic tests; network sockets are disabled
 make test-live  # optional provider smoke test (see docs/quick-start.md)
@@ -82,7 +84,20 @@ make check      # lint, typecheck, and deterministic tests
 uv run lke openapi  # export .artifacts/openapi.json
 ```
 
-## Chapters 2-5 capabilities and boundaries
+List or launch the cumulative chapter demos directly:
+
+```bash
+./scripts/demo_chapter.sh list
+./scripts/demo_chapter.sh 1
+./scripts/demo_chapter.sh 7
+```
+
+Chapters 2–7 apply migrations before launch. Chapter 7 generates disposable
+administrator/member tokens, prints API examples, and uses the secure API-only
+delivery mode. See [Chapter demo launcher](docs/chapter-demos.md) for the focus
+and prerequisites of each chapter.
+
+## Chapters 2-7 capabilities and boundaries
 
 - Named collections and `.md`, `.txt`, and `.pdf` uploads
 - Immutable versions with SHA-256 content and pipeline hashes
@@ -110,7 +125,15 @@ uv run lke openapi  # export .artifacts/openapi.json
 - Pydantic validation, one bounded schema repair, and validation-safe traces
 - Extractive cited degradation for model/format failure and generation-free abstention
 - Versioned trust-boundary prompts and sanitized Gradio answer/source rendering
-- Authentication and multi-user ACLs remain out of scope
+- Immutable labelled evaluation datasets with content hashes and dataset versions
+- Persisted per-case runs with Recall@k, MRR, nDCG, answer, citation, status, and latency metrics
+- Absolute and baseline-relative regression gates over identical dataset versions
+- Run-local chat outage, empty-output, and malformed-output fault injection
+- Declarative provider capability profiles separated from live health checks
+- Optional constant-time bearer authentication with redacted configuration
+- Per-collection owner, editor, and viewer authorization on every API resource path
+- Metadata-only allow/deny audit evidence and administrator-only evaluation controls
+- Secure API mode intentionally disables direct-service Gradio callbacks
 
 See the [Chapter 1 learning notes](docs/chapter-01-knowledge-guide.md),
 [detailed implementation report](docs/chapter-01-implementation.md),
@@ -128,6 +151,12 @@ Chapter 4 adds the [advanced retrieval learning guide](docs/chapter-04-knowledge
 Chapter 5 adds the [validated generation learning guide](docs/chapter-05-knowledge-guide.md),
 [implementation report](docs/chapter-05-implementation.md), and
 [generation operations guide](docs/chapter-05-generation.md).
+Chapter 6 adds the [evaluation learning guide](docs/chapter-06-knowledge-guide.md),
+[implementation report](docs/chapter-06-implementation.md), and
+[evaluation operations guide](docs/chapter-06-evaluation.md).
+Chapter 7 adds the [security and governance learning guide](docs/chapter-07-knowledge-guide.md),
+[implementation report](docs/chapter-07-implementation.md), and
+[security operations guide](docs/chapter-07-security.md).
 
 ## API
 
@@ -150,6 +179,13 @@ Chapter 5 adds the [validated generation learning guide](docs/chapter-05-knowled
 - `GET /api/v1/sources/{source_id}` — citation target for bundled sources
 - `POST/GET /api/v1/collections/{id}/structured-tables` — ingest/list safe CSV tables
 - `POST /api/v1/structured/query` — execute a validated compiled structured plan
+- `POST/GET /api/v1/evaluations/datasets` — create/list immutable labelled datasets
+- `POST/GET /api/v1/evaluations/runs` — execute/list persisted evaluation runs
+- `GET /api/v1/evaluations/compare` — compare same-dataset baseline and candidate runs
+- `GET /api/v1/evaluations/provider-profile` — inspect configured generation capabilities
+- `GET/PUT /api/v1/collections/{id}/access` — inspect or grant collection access
+- `DELETE /api/v1/collections/{id}/access/{principal}` — revoke non-owner access
+- `GET /api/v1/audit-events` — inspect metadata-only security decisions as an admin
 
 `POST /api/v1/query` and `/query/stream` accept `output_mode` values
 `conversational`, `structured`, or `evidence_only`. Structured mode additionally

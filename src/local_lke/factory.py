@@ -1,5 +1,6 @@
 """Application factories used by every delivery surface."""
 
+from local_lke.evaluation import EvaluationService
 from local_lke.indexing import (
     IndexingService,
     MultimodalIndexingService,
@@ -19,6 +20,7 @@ from local_lke.retrieval import (
     StructuredDataService,
     StructuredPlanParser,
 )
+from local_lke.security import SecurityService
 from local_lke.settings import Settings
 from local_lke.storage import (
     SqlAlchemyIngestionRepository,
@@ -101,3 +103,25 @@ def create_indexing_services(
         settings,
     )
     return indexing, multimodal
+
+
+def create_evaluation_service(
+    settings: Settings,
+    pipeline: RAGPipeline,
+    ingestion: IngestionService,
+    retrieval: AdvancedRetrievalService,
+) -> EvaluationService:
+    repository = ingestion.repository
+    if not isinstance(repository, SqlAlchemyIngestionRepository):
+        raise TypeError("Chapter 6 evaluation requires the SQLAlchemy repository")
+    return EvaluationService(repository.sessions, settings, pipeline, retrieval)
+
+
+def create_security_service(
+    settings: Settings,
+    ingestion: IngestionService,
+) -> SecurityService:
+    repository = ingestion.repository
+    if not isinstance(repository, SqlAlchemyIngestionRepository):
+        raise TypeError("Chapter 7 security requires the SQLAlchemy repository")
+    return SecurityService(repository.sessions, settings)

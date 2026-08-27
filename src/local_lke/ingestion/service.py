@@ -40,8 +40,10 @@ class IngestionService:
     def check_health(self) -> str:
         return self.repository.check_health()
 
-    def create_collection(self, name: str) -> CollectionResponse:
-        return self.repository.create_collection(name)
+    def create_collection(
+        self, name: str, owner_principal_id: str | None = None
+    ) -> CollectionResponse:
+        return self.repository.create_collection(name, owner_principal_id)
 
     def list_collections(self) -> list[CollectionResponse]:
         return self.repository.list_collections()

@@ -66,6 +66,171 @@ def test_openapi_contains_query_contract(client: TestClient) -> None:
     query_schema = contract["components"]["schemas"]["QueryRequest"]
     assert "output_mode" in query_schema["properties"]
     assert "schema_name" in query_schema["properties"]
+    assert "/api/v1/evaluations/runs" in contract["paths"]
+    assert "EvaluationRunResponse" in contract["components"]["schemas"]
+
+
+def test_evaluation_dataset_run_faults_and_comparison_are_persisted(
+    client: TestClient,
+) -> None:
+    dataset = client.post(
+        "/api/v1/evaluations/datasets",
+        json={
+            "name": "Atlas Chapter 6",
+            "description": "Deterministic fixture and provider outage checks",
+            "cases": [
+                {
+                    "case_id": "atlas-answer",
+                    "question": QUESTION,
+                    "top_k": 1,
+                    "expectation": {
+                        "relevant_source_ids": ["fixture:atlas-support"],
+                        "answer_contains": ["15 minutes"],
+                    },
+                },
+                {
+                    "case_id": "atlas-outage",
+                    "question": QUESTION,
+                    "top_k": 1,
+                    "fault": "chat_unavailable",
+                    "expectation": {
+                        "relevant_source_ids": ["fixture:atlas-support"],
+                        "acceptable_statuses": ["degraded"],
+                    },
+                },
+                {
+                    "case_id": "atlas-empty-output",
+                    "question": QUESTION,
+                    "top_k": 1,
+                    "fault": "empty_output",
+                    "expectation": {
+                        "relevant_source_ids": ["fixture:atlas-support"],
+                        "acceptable_statuses": ["degraded"],
+                    },
+                },
+                {
+                    "case_id": "atlas-malformed-output",
+                    "question": QUESTION,
+                    "top_k": 1,
+                    "fault": "malformed_output",
+                    "expectation": {
+                        "relevant_source_ids": ["fixture:atlas-support"],
+                        "acceptable_statuses": ["degraded"],
+                    },
+                },
+            ],
+        },
+    )
+    dataset_id = dataset.json()["id"]
+    identical = client.post(
+        "/api/v1/evaluations/datasets",
+        json={
+            "name": dataset.json()["name"],
+            "description": dataset.json()["description"],
+            "cases": dataset.json()["cases"],
+        },
+    )
+    revised = client.post(
+        "/api/v1/evaluations/datasets",
+        json={
+            "name": dataset.json()["name"],
+            "description": "A new immutable description",
+            "cases": dataset.json()["cases"],
+        },
+    )
+    baseline = client.post(
+        "/api/v1/evaluations/runs",
+        json={"dataset_id": dataset_id},
+    )
+    baseline_id = baseline.json()["id"]
+    candidate = client.post(
+        "/api/v1/evaluations/runs",
+        json={
+            "dataset_id": dataset_id,
+            "baseline_run_id": baseline_id,
+            "thresholds": {"max_latency_increase_ms": 10000},
+        },
+    )
+    compared = client.get(
+        "/api/v1/evaluations/compare",
+        params={
+            "baseline_run_id": baseline_id,
+            "candidate_run_id": candidate.json()["id"],
+        },
+    )
+    stored = client.get(f"/api/v1/evaluations/runs/{candidate.json()['id']}")
+    profile = client.get("/api/v1/evaluations/provider-profile")
+
+    assert dataset.status_code == 201
+    assert dataset.json()["version"] == 1
+    assert len(dataset.json()["content_sha256"]) == 64
+    assert identical.json()["id"] == dataset_id
+    assert revised.json()["version"] == 2
+    assert baseline.status_code == 201
+    assert baseline.json()["metrics"]["case_pass_rate"] == 1
+    assert [item["status"] for item in baseline.json()["case_results"][1:]] == [
+        "degraded",
+        "degraded",
+        "degraded",
+    ]
+    assert candidate.json()["gate"]["passed"] is True
+    assert compared.status_code == 200
+    assert compared.json()["deltas"]["case_pass_rate"] == 0
+    assert stored.json() == candidate.json()
+    assert profile.json()["supported_faults"] == [
+        "none",
+        "chat_unavailable",
+        "empty_output",
+        "malformed_output",
+    ]
+
+
+def test_evaluation_runs_the_persisted_collection_path(client: TestClient) -> None:
+    collection_id = client.post(
+        "/api/v1/collections", json={"name": "Evaluation collection"}
+    ).json()["id"]
+    uploaded = client.post(
+        f"/api/v1/collections/{collection_id}/documents",
+        files={
+            "files": (
+                "zephyr-eval.txt",
+                b"The Zephyr deployment code is ZXQ-4917.",
+                "text/plain",
+            )
+        },
+        data={"chunk_strategy": "recursive"},
+    ).json()[0]
+    job = client.get(f"/api/v1/jobs/{uploaded['id']}").json()
+    preview = client.get(
+        f"/api/v1/document-versions/{job['version_id']}/preview"
+    ).json()
+    chunk_id = preview["chunks"][0]["chunk_id"]
+    dataset_id = client.post(
+        "/api/v1/evaluations/datasets",
+        json={
+            "name": "Persisted retrieval gate",
+            "cases": [
+                {
+                    "case_id": "zephyr-code",
+                    "collection_id": collection_id,
+                    "strategy": "hybrid",
+                    "question": "What is the Zephyr deployment code ZXQ-4917?",
+                        "expectation": {
+                            "relevant_chunk_ids": [chunk_id],
+                        },
+                }
+            ],
+        },
+    ).json()["id"]
+
+    run = client.post(
+        "/api/v1/evaluations/runs", json={"dataset_id": dataset_id}
+    )
+
+    assert run.status_code == 201
+    assert run.json()["metrics"]["recall_at_k"] == 1
+    assert run.json()["case_results"][0]["retrieved_chunk_ids"] == [chunk_id]
+    assert run.json()["gate"]["passed"] is True
 
 
 def test_query_supports_validated_structured_and_evidence_only_modes(

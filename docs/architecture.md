@@ -1,4 +1,4 @@
-# Chapters 1-5 Architecture
+# Chapters 1-7 Architecture
 
 Chapter 1 is a measured naive-RAG baseline. It separates the four stages so later
 chapters can improve one stage without changing the public answer contract.
@@ -75,3 +75,32 @@ Chapter 5 turns generation from unvalidated text into a stable application bound
 Model citation IDs are references into the application registry, not source
 identifiers accepted from the model. Only the application resolves a validated
 ID to its retrieved source version, chunk, locator, and excerpt.
+
+Chapter 6 adds a control plane around the unchanged query boundary:
+
+| Evaluation stage | Responsibility | Implementation |
+|---|---|---|
+| Dataset | Canonicalize, hash, version, and persist immutable labelled cases | `evaluation/models.py`, `evaluation/service.py`, `storage/models.py` |
+| Execute | Run fixture or collection queries and isolate controlled provider faults | `evaluation/service.py` |
+| Measure | Score retrieval, answer phrases, citations, statuses, and latency | `evaluation/service.py` |
+| Gate | Apply absolute thresholds and same-dataset baseline deltas | `evaluation/service.py` |
+| Deliver | Expose typed API and an Evaluation workbench tab | `web/api.py`, `web/workbench.py` |
+
+Evaluation consumes the public `AnswerResponse`; it does not reach into raw model
+output or replace application citation resolution. A completed run and a passed
+gate remain distinct states.
+
+Chapter 7 places a governance boundary around every `/api/v1` operation:
+
+| Security stage | Responsibility | Implementation |
+|---|---|---|
+| Authenticate | Validate configured bearer tokens with constant-time digest comparison | `security/service.py`, `settings.py` |
+| Authorize | Resolve nested resources to collections and enforce viewer/editor/owner permissions | `security/service.py`, `web/api.py` |
+| Govern | Reserve cross-collection evaluation and audit inspection for administrators | `web/api.py` |
+| Audit | Persist metadata-only allow/deny decisions without tokens, prompts, or evidence | `security/service.py`, `storage/models.py` |
+| Deliver safely | Publish bearer security in OpenAPI and omit direct-service Gradio in secure mode | `web/app.py`, `web/api.py` |
+
+Authentication is disabled for the original loopback-only learning workflow. Once
+enabled, collection creation and owner assignment share one database transaction;
+all document, version, job, index, image, structured-table, citation, and query
+paths resolve back to that collection before invoking a service.

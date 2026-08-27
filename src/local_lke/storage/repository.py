@@ -33,6 +33,7 @@ from local_lke.models import (
 )
 from local_lke.storage.models import (
     ChunkRecord,
+    CollectionAccessRecord,
     CollectionRecord,
     DocumentElementRecord,
     DocumentVersionRecord,
@@ -48,7 +49,9 @@ class IngestionRepository(Protocol):
 
     def check_health(self) -> str: ...
 
-    def create_collection(self, name: str) -> CollectionResponse: ...
+    def create_collection(
+        self, name: str, owner_principal_id: str | None = None
+    ) -> CollectionResponse: ...
 
     def list_collections(self) -> list[CollectionResponse]: ...
 
@@ -126,7 +129,9 @@ class SqlAlchemyIngestionRepository:
             version = connection.exec_driver_sql(statement).scalar_one()
         return str(version).split(",", maxsplit=1)[0]
 
-    def create_collection(self, name: str) -> CollectionResponse:
+    def create_collection(
+        self, name: str, owner_principal_id: str | None = None
+    ) -> CollectionResponse:
         normalized = " ".join(name.split())
         if not normalized:
             raise IngestionError("Collection name cannot be blank", code="invalid_collection")
@@ -140,6 +145,16 @@ class SqlAlchemyIngestionRepository:
                     f"A collection named '{normalized}' already exists",
                     code="collection_exists",
                 ) from exc
+            if owner_principal_id is not None:
+                session.add(
+                    CollectionAccessRecord(
+                        collection_id=record.id,
+                        principal_id=owner_principal_id,
+                        role="owner",
+                        granted_by=owner_principal_id,
+                    )
+                )
+                session.flush()
             return _collection_response(record)
 
     def list_collections(self) -> list[CollectionResponse]:

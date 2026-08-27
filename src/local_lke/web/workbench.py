@@ -16,6 +16,12 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 import gradio as gr
 
 from local_lke.errors import LKEError
+from local_lke.evaluation import (
+    EvaluationDatasetCreate,
+    EvaluationRunRequest,
+    EvaluationService,
+    EvaluationThresholds,
+)
 from local_lke.indexing import IndexingService, MultimodalIndexingService
 from local_lke.ingestion import IngestionService
 from local_lke.models import (
@@ -47,9 +53,10 @@ def build_workbench(
     structured: StructuredDataService | None = None,
     indexing: IndexingService | None = None,
     multimodal: MultimodalIndexingService | None = None,
+    evaluation: EvaluationService | None = None,
 ) -> gr.Blocks:
     with gr.Blocks(title="Local LKE RAG Workbench") as workbench:
-        gr.Markdown("# Local LKE · Chapters 1-5 RAG Workbench")
+        gr.Markdown("# Local LKE · Chapters 1-7 RAG Workbench")
 
         with gr.Tab("Setup"):
             gr.Markdown(
@@ -371,6 +378,82 @@ def build_workbench(
                     outputs=structured_result,
                 )
 
+        with gr.Tab("Evaluation"):
+            gr.Markdown(
+                "Create immutable labelled datasets, run deterministic retrieval, answer, "
+                "citation, latency, and provider-fault checks, then apply regression gates."
+            )
+            provider_profile_button = gr.Button("Inspect provider capability profile")
+            provider_profile_output = gr.JSON(label="Provider capability profile")
+            evaluation_dataset_payload = gr.JSON(
+                value={
+                    "name": "Atlas smoke evaluation",
+                    "description": "Chapter 6 fixture baseline",
+                    "cases": [
+                        {
+                            "case_id": "atlas-p1-acknowledgement",
+                            "question": (
+                                "How quickly does Atlas acknowledge a priority-one incident?"
+                            ),
+                            "top_k": 1,
+                            "expectation": {
+                                "relevant_source_ids": ["fixture:atlas-support"],
+                                "answer_contains": ["15 minutes"],
+                                "acceptable_statuses": ["answered"],
+                            },
+                        }
+                    ],
+                },
+                label="Immutable dataset definition",
+            )
+            with gr.Row():
+                create_evaluation_dataset_button = gr.Button("Create dataset", variant="primary")
+                list_evaluation_datasets_button = gr.Button("List datasets")
+            evaluation_dataset_output = gr.JSON(label="Dataset result")
+            with gr.Row():
+                evaluation_dataset_id = gr.Textbox(label="Dataset ID")
+                evaluation_baseline_run_id = gr.Textbox(
+                    label="Optional baseline run ID"
+                )
+            evaluation_thresholds = gr.JSON(
+                value={
+                    "min_case_pass_rate": 1.0,
+                    "max_metric_decline": 0.0,
+                },
+                label="Regression thresholds",
+            )
+            run_evaluation_button = gr.Button("Run evaluation", variant="primary")
+            evaluation_run_output = gr.JSON(
+                label="Metrics, per-case evidence, faults, and regression gate"
+            )
+            if evaluation is not None:
+                provider_profile_button.click(
+                    fn=lambda: evaluation.provider_profile().model_dump(mode="json"),
+                    outputs=provider_profile_output,
+                )
+                create_evaluation_dataset_button.click(
+                    fn=lambda payload: evaluation_dataset_callback(evaluation, payload),
+                    inputs=evaluation_dataset_payload,
+                    outputs=evaluation_dataset_output,
+                )
+                list_evaluation_datasets_button.click(
+                    fn=lambda: [
+                        item.model_dump(mode="json") for item in evaluation.list_datasets()
+                    ],
+                    outputs=evaluation_dataset_output,
+                )
+                run_evaluation_button.click(
+                    fn=lambda dataset_id, baseline_id, thresholds: evaluation_run_callback(
+                        evaluation, dataset_id, baseline_id, thresholds
+                    ),
+                    inputs=[
+                        evaluation_dataset_id,
+                        evaluation_baseline_run_id,
+                        evaluation_thresholds,
+                    ],
+                    outputs=evaluation_run_output,
+                )
+
         with gr.Tab("Multimodal Search"):
             gr.Markdown(
                 "Images are decoded and embedded locally. Results expose image provenance; "
@@ -454,6 +537,34 @@ def provider_health(
                 detail = "Database unavailable; run 'make init-postgres'."
             results[name] = {"status": "unavailable", "detail": detail}
     return results
+
+
+def evaluation_dataset_callback(
+    evaluation: EvaluationService,
+    payload: object,
+) -> dict[str, object]:
+    try:
+        dataset = evaluation.create_dataset(EvaluationDatasetCreate.model_validate(payload))
+        return dataset.model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def evaluation_run_callback(
+    evaluation: EvaluationService,
+    dataset_id: str,
+    baseline_run_id: str,
+    thresholds: object,
+) -> dict[str, object]:
+    try:
+        request = EvaluationRunRequest(
+            dataset_id=UUID(dataset_id),
+            baseline_run_id=UUID(baseline_run_id) if baseline_run_id.strip() else None,
+            thresholds=EvaluationThresholds.model_validate(thresholds),
+        )
+        return evaluation.run(request).model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
 
 
 def document_summary(pipeline: RAGPipeline) -> list[dict[str, str]]:
