@@ -1,4 +1,4 @@
-# Chapters 1–2 Quick Start
+# Chapters 1, 2, and 4 Quick Start
 
 ## Automated foundation setup
 
@@ -105,6 +105,21 @@ uv run lke openapi
 
 The generated `.artifacts/openapi.json` is a local build artifact and is ignored
 by Git.
+
+## Chapter 4 first query
+
+Create a collection and ingest a text/Markdown/PDF document in the Documents
+tab. Open Retrieval Lab, refresh collections, select that collection, and choose
+`hybrid`. The stage comparison exposes dense, lexical, fused, optional reranked,
+and final context decisions.
+
+For tabular data, open Structured Data and upload UTF-8 CSV. Copy the returned
+table ID into the query form. You may provide a Pydantic-shaped plan or let the
+configured local model propose JSON. The application always validates and
+compiles the plan; it never executes model SQL.
+
+See [Chapter 4 retrieval operations](chapter-04-retrieval.md) for request
+examples and tuning controls.
 
 ## Troubleshooting
 

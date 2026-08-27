@@ -1,10 +1,12 @@
 # Local LKE
 
 Local LKE is an English, executable companion for learning Retrieval-Augmented
-Generation (RAG). Chapter 2 adds safe, versioned ingestion for Markdown, text,
-and PDF files to the Chapter 1 in-memory RAG baseline. One FastAPI and Gradio
-application exposes collections, ingestion jobs, parser previews, chunks,
-version history, and cited chat.
+Generation (RAG). Chapter 4 adds hybrid, metadata-aware, corrective, and safe
+structured retrieval to the Chapter 1 cited baseline and Chapter 2 versioned
+ingestion. Chapter 3 is intentionally skipped: dense retrieval embeds active
+chunks on demand rather than claiming a persistent pgvector index. One FastAPI
+and Gradio application exposes collections, ingestion, retrieval-stage traces,
+context manifests, CSV schemas, safe SQL previews, and cited answers.
 
 The deterministic suite creates isolated SQLite stores and a temporary local
 PostgreSQL 18 cluster; it needs no model server or network access. Interactive
@@ -81,7 +83,7 @@ make check      # lint, typecheck, and deterministic tests
 uv run lke openapi  # export .artifacts/openapi.json
 ```
 
-## Chapter 2 capabilities and boundaries
+## Chapter 4 capabilities and boundaries
 
 - Named collections and `.md`, `.txt`, and `.pdf` uploads
 - Immutable versions with SHA-256 content and pipeline hashes
@@ -89,8 +91,16 @@ uv run lke openapi  # export .artifacts/openapi.json
 - Recursive, Markdown-aware, and experimental sentence-semantic chunking
 - Inspectable persistent jobs, parser previews, versions, and chunks
 - Safe local single-user upload boundary with size, MIME, filename, and PDF checks
-- Chapter 1 chat still uses its in-memory fixture index; persisted chunk indexing
-  begins in Chapter 3
+- Active-version PostgreSQL English full-text search with a generated `tsvector`
+  and GIN index
+- On-demand local dense search, RRF hybrid fusion, and optional local
+  cross-encoder reranking
+- Allowlisted metadata filters, bounded decomposition, step-back/HyDE probes,
+  context manifests, one corrective retry, and evidence-based abstention
+- Validated CSV schema inference and SQLAlchemy-compiled read-only structured queries
+- The no-collection API path still preserves the Chapter 1 fixture baseline
+- Persistent pgvector/HNSW, multimodal indexing, and embedding profiles remain
+  absent because Chapter 3 was intentionally skipped
 - Authentication and multi-user ACLs remain out of scope
 
 See the [Chapter 1 learning notes](docs/chapter-01-knowledge-guide.md),
@@ -100,6 +110,9 @@ and [initial RAG issue baseline](docs/blog-coverage.md).
 For this milestone, see the [Chapter 2 learning notes](docs/chapter-02-knowledge-guide.md),
 [implementation report](docs/chapter-02-implementation.md), and
 [ingestion operations guide](docs/chapter-02-ingestion.md).
+Chapter 4 adds the [advanced retrieval learning guide](docs/chapter-04-knowledge-guide.md),
+[implementation report](docs/chapter-04-implementation.md), and
+[retrieval operations guide](docs/chapter-04-retrieval.md).
 
 ## API
 
@@ -110,10 +123,12 @@ For this milestone, see the [Chapter 2 learning notes](docs/chapter-02-knowledge
 - `GET /api/v1/collections/{id}/documents` — list documents and version history
 - `GET /api/v1/document-versions/{id}/preview` — inspect elements and chunks
 - `DELETE /api/v1/documents/{id}` — soft-delete and deactivate versions
-- `POST /api/v1/query` — synchronous cited answer
+- `POST /api/v1/query` — fixture baseline or collection-scoped dense/hybrid answer
 - `POST /api/v1/query/stream` — ordered `start`, `retrieval`, `delta`,
   `completion`, and `error` SSE events
 - `GET /api/v1/sources/{source_id}` — citation target for bundled sources
+- `POST/GET /api/v1/collections/{id}/structured-tables` — ingest/list safe CSV tables
+- `POST /api/v1/structured/query` — execute a validated compiled structured plan
 
 ## Future LKE extension
 

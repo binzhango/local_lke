@@ -38,6 +38,18 @@ class Settings(BaseSettings):
     default_chunk_strategy: str = "markdown"
     chunk_size: int = Field(default=800, ge=100, le=100_000)
     chunk_overlap: int = Field(default=120, ge=0, le=10_000)
+    retrieval_candidate_limit: int = Field(default=20, ge=2, le=200)
+    retrieval_context_tokens: int = Field(default=1800, ge=64, le=100_000)
+    retrieval_source_tokens: int = Field(default=900, ge=32, le=50_000)
+    retrieval_max_subqueries: int = Field(default=4, ge=1, le=8)
+    retrieval_rrf_k: int = Field(default=60, ge=1, le=1000)
+    retrieval_answerability_threshold: float = Field(default=0.34, ge=0, le=1)
+    reranker_enabled: bool = False
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    structured_max_rows: int = Field(default=100, ge=1, le=10_000)
+    structured_max_csv_rows: int = Field(default=50_000, ge=1, le=1_000_000)
+    structured_max_columns: int = Field(default=100, ge=1, le=1000)
+    structured_statement_timeout_ms: int = Field(default=3000, ge=100, le=60_000)
 
     @field_validator("default_parser_strategy")
     @classmethod
@@ -72,6 +84,18 @@ class Settings(BaseSettings):
             "default_chunk_strategy": self.default_chunk_strategy,
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
+            "retrieval_candidate_limit": self.retrieval_candidate_limit,
+            "retrieval_context_tokens": self.retrieval_context_tokens,
+            "retrieval_source_tokens": self.retrieval_source_tokens,
+            "retrieval_max_subqueries": self.retrieval_max_subqueries,
+            "retrieval_rrf_k": self.retrieval_rrf_k,
+            "retrieval_answerability_threshold": self.retrieval_answerability_threshold,
+            "reranker_enabled": str(self.reranker_enabled),
+            "reranker_model": self.reranker_model,
+            "structured_max_rows": self.structured_max_rows,
+            "structured_max_csv_rows": self.structured_max_csv_rows,
+            "structured_max_columns": self.structured_max_columns,
+            "structured_statement_timeout_ms": self.structured_statement_timeout_ms,
         }
 
 

@@ -31,6 +31,10 @@ def test_gradio_blocks_constructs_with_expected_tabs(
         "Document version history",
         "Parser preview and chunk inspection",
         "Question",
+        "Strategy",
+        "Query rewrite",
+        "Final context manifest and answerability",
+        "Rows, safe SQL preview, and provenance",
     } <= labels
 
 

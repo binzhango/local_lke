@@ -113,3 +113,80 @@ def test_batch_is_fully_validated_before_any_job_is_queued(client: TestClient) -
     assert response.status_code == 422
     documents = client.get(f"/api/v1/collections/{collection_id}/documents")
     assert documents.json() == []
+
+
+def test_persisted_hybrid_query_returns_stage_trace_and_versioned_source(
+    client: TestClient,
+) -> None:
+    collection_id = client.post(
+        "/api/v1/collections", json={"name": "Retrieval API"}
+    ).json()["id"]
+    client.post(
+        f"/api/v1/collections/{collection_id}/documents",
+        files={
+            "files": (
+                "zephyr.txt",
+                b"The Zephyr deployment code is ZXQ-4917.",
+                "text/plain",
+            )
+        },
+        data={"chunk_strategy": "recursive"},
+    )
+
+    response = client.post(
+        "/api/v1/query",
+        json={
+            "collection_id": collection_id,
+            "question": "What is the Zephyr deployment code ZXQ-4917?",
+            "strategy": "hybrid",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trace"]["retrieval"]["strategy"] == "hybrid"
+    assert payload["trace"]["retrieval"]["candidates"][0]["lexical_rank"] == 1
+    citation = payload["citations"][0]
+    source = client.get(f"/api/v1/sources/{citation['source_id']}")
+    assert source.status_code == 200
+    assert "ZXQ-4917" in source.text
+
+
+def test_structured_upload_and_query_api_never_accepts_raw_sql(client: TestClient) -> None:
+    collection_id = client.post(
+        "/api/v1/collections", json={"name": "Structured API"}
+    ).json()["id"]
+    upload = client.post(
+        f"/api/v1/collections/{collection_id}/structured-tables",
+        files={"file": ("sales.csv", b"region,revenue\nEast,100\nWest,250\n", "text/csv")},
+    )
+    table_id = upload.json()["id"]
+    query = client.post(
+        "/api/v1/structured/query",
+        json={
+            "table_id": table_id,
+            "question": "Largest revenue",
+            "plan": {
+                "projections": ["region", "revenue"],
+                "filters": [],
+                "group_by": [],
+                "aggregations": [],
+                "order_by": [{"column": "revenue", "direction": "desc"}],
+                "limit": 1,
+            },
+        },
+    )
+    rejected = client.post(
+        "/api/v1/structured/query",
+        json={
+            "table_id": table_id,
+            "question": "Destroy data",
+            "plan": {"raw_sql": "DROP TABLE collections"},
+        },
+    )
+
+    assert upload.status_code == 201
+    assert query.status_code == 200
+    assert query.json()["rows"] == [{"region": "West", "revenue": 250}]
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "validation_error"

@@ -13,7 +13,21 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 from local_lke.ingestion import IngestionService
-from local_lke.models import ChunkStrategy, JobStatus, ParserStrategy
+from local_lke.models import (
+    ChunkStrategy,
+    JobStatus,
+    ParserStrategy,
+    QueryRequest,
+    RetrievalStrategy,
+    StructuredQueryPlan,
+    StructuredQueryRequest,
+)
+from local_lke.providers import DeterministicFakeEmbeddings, FakeChatProvider
+from local_lke.retrieval import (
+    AdvancedRetrievalService,
+    StructuredDataService,
+    StructuredPlanParser,
+)
 from local_lke.settings import Settings
 from local_lke.storage import SqlAlchemyIngestionRepository, create_session_factory
 
@@ -27,6 +41,7 @@ EXPECTED_TABLES = {
     "documents",
     "ingestion_jobs",
     "pipeline_configurations",
+    "structured_tables",
 }
 
 
@@ -87,6 +102,12 @@ def test_migrations_apply_to_an_empty_postgresql_18_database() -> None:
                 assert any(
                     item["name"] == "uq_versions_one_active" and item["unique"] for item in indexes
                 )
+                chunk_indexes = inspect(engine).get_indexes("chunks")
+                assert any(
+                    item["name"] == "ix_chunks_search_vector_gin"
+                    and item["dialect_options"]["postgresql_using"] == "gin"
+                    for item in chunk_indexes
+                )
                 settings = Settings(
                     _env_file=None,
                     database_url=database_url,
@@ -110,6 +131,42 @@ def test_migrations_apply_to_an_empty_postgresql_18_database() -> None:
                 assert job.status is JobStatus.COMPLETED
                 assert job.version_id is not None
                 assert service.preview(job.version_id).chunks[0].locator == "lines:1-1"
+                retrieval = AdvancedRetrievalService(
+                    repository=service.repository,
+                    embeddings=DeterministicFakeEmbeddings(),
+                    chat=FakeChatProvider("PostgreSQL preserves immutable chunk provenance."),
+                    settings=settings,
+                )
+                retrieved = retrieval.retrieve(
+                    QueryRequest(
+                        collection_id=collection.id,
+                        question="What preserves immutable chunk provenance?",
+                        strategy=RetrievalStrategy.HYBRID,
+                    )
+                )
+                assert retrieved.trace.candidates[0].lexical_rank == 1
+                assert retrieved.trace.candidates[0].matched_terms
+                structured = StructuredDataService(
+                    service.repository,
+                    settings,
+                    StructuredPlanParser(FakeChatProvider()),
+                )
+                table = structured.ingest_csv(
+                    collection_id=collection.id,
+                    filename="acceptance.csv",
+                    content=b"name,value\nalpha,1\nbeta,2\n",
+                )
+                rows = structured.query(
+                    StructuredQueryRequest(
+                        table_id=table.id,
+                        question="List values",
+                        plan=StructuredQueryPlan(
+                            projections=["name", "value"], limit=1
+                        ),
+                    )
+                )
+                assert rows.rows == [{"name": "alpha", "value": 1}]
+                assert rows.truncated is True
             finally:
                 engine.dispose()
         finally:

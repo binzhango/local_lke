@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, FastAPI, File, Form, Request, Up
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
-from local_lke.errors import IngestionError, LKEError, NotFoundError
+from local_lke.errors import IngestionError, LKEError, NotFoundError, RetrievalError
 from local_lke.ingestion import IngestionService
 from local_lke.ingestion.safety import validate_upload
 from local_lke.models import (
@@ -27,11 +27,20 @@ from local_lke.models import (
     ParserPreviewResponse,
     ParserStrategy,
     QueryRequest,
+    StructuredQueryRequest,
+    StructuredQueryResponse,
+    StructuredTableResponse,
 )
 from local_lke.rag import RAGPipeline
+from local_lke.retrieval import AdvancedRetrievalService, StructuredDataService
 
 
-def create_router(pipeline: RAGPipeline, ingestion: IngestionService) -> APIRouter:
+def create_router(
+    pipeline: RAGPipeline,
+    ingestion: IngestionService,
+    retrieval: AdvancedRetrievalService,
+    structured: StructuredDataService,
+) -> APIRouter:
     router = APIRouter()
 
     @router.get("/healthz", response_model=HealthResponse)
@@ -62,13 +71,24 @@ def create_router(pipeline: RAGPipeline, ingestion: IngestionService) -> APIRout
         responses={503: {"model": ErrorResponse}},
     )
     def query(payload: QueryRequest) -> AnswerResponse:
-        return pipeline.query(payload.question, payload.top_k)
+        if payload.collection_id is None and payload.strategy.value == "dense":
+            return pipeline.query(payload.question, payload.top_k)
+        return retrieval.query(payload)
 
     @router.post("/api/v1/query/stream")
     def stream_query(payload: QueryRequest) -> StreamingResponse:
         async def events() -> AsyncIterator[str]:
             yield _sse("start", {"question": payload.question})
             try:
+                if payload.collection_id is not None:
+                    response = retrieval.query(payload)
+                    if response.trace.retrieval is not None:
+                        yield _sse(
+                            "retrieval",
+                            response.trace.retrieval.model_dump(mode="json"),
+                        )
+                    yield _sse("completion", response.model_dump(mode="json"))
+                    return
                 for event_type, data in pipeline.stream_query(payload.question, payload.top_k):
                     if hasattr(data, "model_dump"):
                         data = data.model_dump(mode="json")
@@ -87,6 +107,12 @@ def create_router(pipeline: RAGPipeline, ingestion: IngestionService) -> APIRout
 
     @router.get("/api/v1/sources/{source_id}", response_class=PlainTextResponse)
     def source(source_id: str) -> PlainTextResponse:
+        if source_id.startswith("version:"):
+            try:
+                preview = ingestion.preview(UUID(source_id.removeprefix("version:")))
+            except (ValueError, LKEError):
+                return PlainTextResponse("Source not found", status_code=404)
+            return PlainTextResponse("\n\n".join(chunk.text for chunk in preview.chunks))
         for document in pipeline.documents:
             if document.source_id == source_id:
                 return PlainTextResponse(document.content)
@@ -178,6 +204,36 @@ def create_router(pipeline: RAGPipeline, ingestion: IngestionService) -> APIRout
     def delete_document(document_id: UUID, reason: str = "deleted by user") -> DocumentResponse:
         return ingestion.delete_document(document_id, reason)
 
+    @router.post(
+        "/api/v1/collections/{collection_id}/structured-tables",
+        response_model=StructuredTableResponse,
+        status_code=201,
+    )
+    async def upload_structured_table(
+        collection_id: UUID,
+        file: Annotated[UploadFile, File()],
+    ) -> StructuredTableResponse:
+        content = await file.read(ingestion.settings.max_upload_bytes + 1)
+        return structured.ingest_csv(
+            collection_id=collection_id,
+            filename=file.filename or "",
+            content=content,
+        )
+
+    @router.get(
+        "/api/v1/collections/{collection_id}/structured-tables",
+        response_model=list[StructuredTableResponse],
+    )
+    def list_structured_tables(collection_id: UUID) -> list[StructuredTableResponse]:
+        return structured.list_tables(collection_id)
+
+    @router.post(
+        "/api/v1/structured/query",
+        response_model=StructuredQueryResponse,
+    )
+    def structured_query(payload: StructuredQueryRequest) -> StructuredQueryResponse:
+        return structured.query(payload)
+
     return router
 
 
@@ -192,6 +248,8 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code = 404
         elif isinstance(exc, IngestionError):
             status_code = 413 if exc.code in {"file_too_large", "batch_too_large"} else 422
+        elif isinstance(exc, RetrievalError):
+            status_code = 404 if exc.code.endswith("not_found") else 422
         return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
 
     @app.exception_handler(RequestValidationError)

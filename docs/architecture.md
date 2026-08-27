@@ -1,4 +1,4 @@
-# Chapters 1–2 Architecture
+# Chapters 1, 2, and 4 Architecture
 
 Chapter 1 is a measured naive-RAG baseline. It separates the four stages so later
 chapters can improve one stage without changing the public answer contract.
@@ -26,11 +26,27 @@ query baseline:
 | Persistence | Store collections, documents, versions, elements, chunks, pipeline configs, and recoverable jobs | `storage/models.py`, `migrations/` |
 
 FastAPI and Gradio share both the `RAGPipeline` and `IngestionService`. The query
-pipeline remains the measured in-memory fixture baseline until Chapter 3 embeds
-persisted chunks into PostgreSQL/pgvector.
+pipeline remains available as the measured in-memory fixture baseline.
+
+Chapter 4 intentionally skips the Chapter 3 milestone and adds a bounded bridge
+from Chapter 2 chunks:
+
+| Retrieval stage | Responsibility | Implementation |
+|---|---|---|
+| Plan | Normalize, route, decompose, and validate metadata | `retrieval/planning.py`, `models.py` |
+| Recall | On-demand dense cosine plus lifecycle-scoped PostgreSQL FTS/BM25 | `retrieval/service.py`, `storage/repository.py`, `migrations/` |
+| Fusion/precision | RRF identity fusion and optional local cross-encoder | `retrieval/service.py`, `retrieval/reranking.py` |
+| Context | Coverage-first dedupe/diversity/token packing with manifest | `retrieval/service.py` |
+| Correction | Deterministic sufficiency, one alternate retrieval, abstention | `retrieval/service.py` |
+| Structured | CSV typing/provenance and Pydantic-to-SQLAlchemy compilation | `retrieval/structured.py` |
+
+The absence of Chapter 3 is explicit: no persistent dense vectors, ANN index,
+multimodal store, or embedding-profile activation exists. This keeps the Chapter
+4 feature set honest while preserving a clear seam for later indexing work.
 
 ## Trace timings
 
-Every answer records milliseconds for `load`, `split`, `embed`, `retrieve`, and
-`generate`. The workbench Trace tab also shows retrieval rank, similarity score,
-source metadata, and the exact chunk text used as evidence.
+Fixture answers record `load`, `split`, `embed`, `retrieve`, and `generate`.
+Persisted answers additionally expose query transformation, metadata plan,
+dense/lexical/fused/reranked positions, context inclusion/exclusion/truncation,
+reranker latency/gain, sufficiency features, and corrective strategy.

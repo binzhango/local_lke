@@ -39,3 +39,15 @@ class NotFoundError(LKEError):
     def __init__(self, message: str, *, component: str) -> None:
         super().__init__(message)
         self.component = component
+
+
+class RetrievalError(LKEError):
+    """A retrieval or structured-query request was rejected safely."""
+
+    code = "retrieval_error"
+    component = "retrieval"
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        if code is not None:
+            self.code = code

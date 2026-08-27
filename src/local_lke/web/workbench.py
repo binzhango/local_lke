@@ -15,8 +15,19 @@ import gradio as gr
 
 from local_lke.errors import LKEError
 from local_lke.ingestion import IngestionService
-from local_lke.models import AnswerResponse, ChunkStrategy, ParserStrategy
+from local_lke.models import (
+    AnswerResponse,
+    ChunkStrategy,
+    MetadataFilterPlan,
+    ParserStrategy,
+    QueryRequest,
+    RetrievalStrategy,
+    RewriteStrategy,
+    StructuredQueryPlan,
+    StructuredQueryRequest,
+)
 from local_lke.rag import RAGPipeline
+from local_lke.retrieval import AdvancedRetrievalService, StructuredDataService
 from local_lke.settings import Settings
 from local_lke.web.api import citation_url
 
@@ -25,9 +36,11 @@ def build_workbench(
     pipeline: RAGPipeline,
     settings: Settings,
     ingestion: IngestionService | None = None,
+    retrieval: AdvancedRetrievalService | None = None,
+    structured: StructuredDataService | None = None,
 ) -> gr.Blocks:
     with gr.Blocks(title="Local LKE RAG Workbench") as workbench:
-        gr.Markdown("# Local LKE · Chapter 2 Ingestion Workbench")
+        gr.Markdown("# Local LKE · Chapter 4 Retrieval Workbench")
 
         with gr.Tab("Setup"):
             gr.Markdown(
@@ -150,6 +163,123 @@ def build_workbench(
 
         with gr.Tab("Trace"):
             trace = gr.JSON(label="Retrieval order and timings")
+
+        with gr.Tab("Retrieval Lab"):
+            gr.Markdown(
+                "Compare dense, lexical, fused, reranked, and final-context decisions "
+                "against active persisted chunks."
+            )
+            retrieval_collection = gr.Dropdown(label="Collection", choices=[])
+            refresh_retrieval_collections = gr.Button("Refresh retrieval collections")
+            retrieval_question = gr.Textbox(label="Persisted-data question")
+            with gr.Row():
+                retrieval_strategy = gr.Dropdown(
+                    [RetrievalStrategy.DENSE.value, RetrievalStrategy.HYBRID.value],
+                    value=RetrievalStrategy.HYBRID.value,
+                    label="Strategy",
+                )
+                rewrite_strategy = gr.Dropdown(
+                    [item.value for item in RewriteStrategy],
+                    value=RewriteStrategy.NONE.value,
+                    label="Query rewrite",
+                )
+                retrieval_top_k = gr.Slider(1, 20, value=3, step=1, label="Final Top K")
+            metadata_plan = gr.JSON(
+                value={"conditions": [], "allow_unfiltered_fallback": False},
+                label="Allowlisted metadata filter plan",
+            )
+            infer_metadata = gr.Checkbox(
+                value=False,
+                label="Ask local model for a validated metadata plan",
+            )
+            run_retrieval = gr.Button("Run retrieval", variant="primary")
+            retrieval_answer = gr.Markdown(label="Answer or abstention")
+            retrieval_citations = gr.Markdown(label="Versioned citations")
+            stage_comparison = gr.JSON(
+                label="Dense / lexical / fused / reranked candidate comparison"
+            )
+            context_manifest = gr.JSON(label="Final context manifest and answerability")
+
+            if ingestion is not None and retrieval is not None:
+                refresh_retrieval_collections.click(
+                    fn=lambda: gr.update(choices=collection_choices(ingestion)),
+                    outputs=retrieval_collection,
+                )
+                run_retrieval.click(
+                    fn=lambda collection_id, user_question, strategy, rewrite, k, filters, infer: (
+                        retrieval_callback(
+                            retrieval,
+                            collection_id,
+                            user_question,
+                            strategy,
+                            rewrite,
+                            int(k),
+                            filters,
+                            infer,
+                        )
+                    ),
+                    inputs=[
+                        retrieval_collection,
+                        retrieval_question,
+                        retrieval_strategy,
+                        rewrite_strategy,
+                        retrieval_top_k,
+                        metadata_plan,
+                        infer_metadata,
+                    ],
+                    outputs=[
+                        retrieval_answer,
+                        retrieval_citations,
+                        stage_comparison,
+                        context_manifest,
+                    ],
+                )
+
+        with gr.Tab("Structured Data"):
+            gr.Markdown(
+                "Upload a bounded UTF-8 CSV, inspect inferred schema and provenance, "
+                "then execute a validated plan—never raw model-generated SQL."
+            )
+            structured_collection = gr.Dropdown(label="Collection", choices=[])
+            refresh_structured_collections = gr.Button("Refresh structured collections")
+            csv_file = gr.File(label="Upload .csv", file_count="single", type="filepath")
+            upload_csv = gr.Button("Ingest CSV")
+            structured_table_result = gr.JSON(label="Inferred schema and provenance")
+            table_id = gr.Textbox(label="Structured table ID")
+            structured_question = gr.Textbox(label="Natural-language question")
+            structured_plan = gr.JSON(
+                value={
+                    "projections": [],
+                    "filters": [],
+                    "group_by": [],
+                    "aggregations": [],
+                    "order_by": [],
+                    "limit": 50,
+                },
+                label="Optional validated plan (leave null to ask the local model)",
+            )
+            run_structured = gr.Button("Run structured query", variant="primary")
+            structured_result = gr.JSON(label="Rows, safe SQL preview, and provenance")
+
+            if ingestion is not None and structured is not None:
+                refresh_structured_collections.click(
+                    fn=lambda: gr.update(choices=collection_choices(ingestion)),
+                    outputs=structured_collection,
+                )
+                upload_csv.click(
+                    fn=lambda collection_id, path: structured_upload_callback(
+                        structured, collection_id, path
+                    ),
+                    inputs=[structured_collection, csv_file],
+                    outputs=structured_table_result,
+                )
+                run_structured.click(
+                    fn=lambda selected_table, user_question, plan: structured_query_callback(
+                        structured, selected_table, user_question, plan
+                    ),
+                    inputs=[table_id, structured_question, structured_plan],
+                    outputs=structured_result,
+                )
 
         ask.click(
             fn=lambda user_question, k: chat_callback(pipeline, user_question, int(k)),
@@ -311,5 +441,87 @@ def job_callback(
         resolved_id = UUID(job_id)
         job = ingestion.retry(resolved_id) if retry else ingestion.get_job(resolved_id)
         return job.model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def retrieval_callback(
+    retrieval: AdvancedRetrievalService,
+    collection_id: str | None,
+    question: str,
+    strategy: str,
+    rewrite: str,
+    top_k: int,
+    filters: dict[str, object] | None,
+    infer_metadata: bool,
+) -> tuple[str, str, object, object]:
+    if not collection_id:
+        return "Choose a collection.", "", {}, {}
+    try:
+        response = retrieval.query(
+            QueryRequest(
+                collection_id=UUID(collection_id),
+                question=question,
+                strategy=RetrievalStrategy(strategy),
+                rewrite=RewriteStrategy(rewrite),
+                top_k=top_k,
+                metadata_filter=MetadataFilterPlan.model_validate(filters or {}),
+                infer_metadata_filter=infer_metadata,
+            )
+        )
+        advanced = response.trace.retrieval
+        candidates = (
+            [item.model_dump(mode="json") for item in advanced.candidates]
+            if advanced is not None
+            else []
+        )
+        decision = (
+            {
+                "context_manifest": [
+                    item.model_dump(mode="json") for item in advanced.context_manifest
+                ],
+                "answerability": advanced.answerability.model_dump(mode="json"),
+                "transform": advanced.transform.model_dump(mode="json"),
+                "metadata_filter": advanced.metadata_filter.model_dump(mode="json"),
+            }
+            if advanced is not None
+            else {}
+        )
+        return response.answer, format_citations(response), candidates, decision
+    except (LKEError, ValueError) as exc:
+        return f"Retrieval error: {exc}", "", {}, {}
+
+
+def structured_upload_callback(
+    structured: StructuredDataService,
+    collection_id: str | None,
+    path: str | None,
+) -> dict[str, object]:
+    if not collection_id or not path:
+        return {"error": "Choose a collection and CSV file."}
+    try:
+        source = Path(path)
+        return structured.ingest_csv(
+            collection_id=UUID(collection_id),
+            filename=source.name,
+            content=source.read_bytes(),
+        ).model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def structured_query_callback(
+    structured: StructuredDataService,
+    table_id: str,
+    question: str,
+    plan: dict[str, object] | None,
+) -> dict[str, object]:
+    try:
+        payload = StructuredQueryRequest(
+            table_id=UUID(table_id),
+            question=question,
+            plan=StructuredQueryPlan.model_validate(plan) if plan else None,
+        )
+        return structured.query(payload).model_dump(mode="json")
     except (LKEError, ValueError) as exc:
         return {"error": str(exc)}

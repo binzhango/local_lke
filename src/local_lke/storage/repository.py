@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import math
+import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from sqlalchemy import Engine, select, update
+from sqlalchemy import ColumnElement, Engine, func, literal_column, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload, sessionmaker
 
-from local_lke.errors import IngestionError, NotFoundError
+from local_lke.errors import IngestionError, NotFoundError, RetrievalError
 from local_lke.models import (
+    ActiveChunk,
     ChunkStrategy,
     CollectionResponse,
     DocumentElement,
@@ -22,6 +26,8 @@ from local_lke.models import (
     IngestedChunk,
     IngestionJobResponse,
     JobStatus,
+    MetadataFilterPlan,
+    MetadataOperator,
     ParserPreviewResponse,
     ParserStrategy,
 )
@@ -90,6 +96,18 @@ class IngestionRepository(Protocol):
     def get_preview(self, version_id: UUID) -> ParserPreviewResponse: ...
 
     def soft_delete_document(self, document_id: UUID, reason: str) -> DocumentResponse: ...
+
+    def list_active_chunks(
+        self, collection_id: UUID, filters: MetadataFilterPlan
+    ) -> list[ActiveChunk]: ...
+
+    def lexical_search(
+        self,
+        collection_id: UUID,
+        query: str,
+        filters: MetadataFilterPlan,
+        limit: int,
+    ) -> list[tuple[ActiveChunk, float, list[str]]]: ...
 
 
 class SqlAlchemyIngestionRepository:
@@ -372,6 +390,199 @@ class SqlAlchemyIngestionRepository:
                     version.inactive_reason = reason
             session.flush()
             return _document_response(record)
+
+    def list_active_chunks(
+        self, collection_id: UUID, filters: MetadataFilterPlan
+    ) -> list[ActiveChunk]:
+        self.get_collection(collection_id)
+        statement = _active_chunk_statement(collection_id, filters).order_by(
+            LogicalDocumentRecord.filename,
+            ChunkRecord.ordinal,
+        )
+        with self.sessions() as session:
+            return [_active_chunk_from_row(row) for row in session.execute(statement)]
+
+    def lexical_search(
+        self,
+        collection_id: UUID,
+        query: str,
+        filters: MetadataFilterPlan,
+        limit: int,
+    ) -> list[tuple[ActiveChunk, float, list[str]]]:
+        terms = _query_terms(query)
+        if not terms:
+            return []
+        if self.engine.dialect.name == "postgresql":
+            vector: Any = literal_column("chunks.search_vector")
+            parsed_query = func.plainto_tsquery("english", query)
+            rank = func.ts_rank_cd(vector, parsed_query).label("lexical_score")
+            statement = (
+                _active_chunk_statement(collection_id, filters)
+                .add_columns(rank)
+                .where(vector.bool_op("@@")(parsed_query))
+                .order_by(rank.desc(), ChunkRecord.id)
+                .limit(limit)
+            )
+            with self.sessions() as session:
+                rows = session.execute(statement)
+                return [
+                    (
+                        _active_chunk_from_row(row[:-1]),
+                        float(row[-1]),
+                        _matched_terms(terms, str(row[9])),
+                    )
+                    for row in rows
+                ]
+
+        chunks = self.list_active_chunks(collection_id, filters)
+        return _bm25(chunks, terms, limit)
+
+
+def _active_chunk_statement(collection_id: UUID, filters: MetadataFilterPlan) -> Any:
+    statement = (
+        select(
+            ChunkRecord.id,
+            LogicalDocumentRecord.collection_id,
+            LogicalDocumentRecord.id,
+            DocumentVersionRecord.id,
+            LogicalDocumentRecord.display_filename,
+            DocumentVersionRecord.media_type,
+            DocumentVersionRecord.parser_strategy,
+            ChunkRecord.strategy,
+            ChunkRecord.ordinal,
+            ChunkRecord.text,
+            ChunkRecord.locator,
+            ChunkRecord.page_number,
+            ChunkRecord.heading_path,
+            ChunkRecord.token_count,
+            DocumentVersionRecord.created_at,
+        )
+        .join(DocumentVersionRecord, ChunkRecord.version_id == DocumentVersionRecord.id)
+        .join(LogicalDocumentRecord, DocumentVersionRecord.document_id == LogicalDocumentRecord.id)
+        .where(
+            LogicalDocumentRecord.collection_id == str(collection_id),
+            LogicalDocumentRecord.deleted_at.is_(None),
+            DocumentVersionRecord.active.is_(True),
+            DocumentVersionRecord.status == "complete",
+        )
+    )
+    predicates = _metadata_predicates(filters)
+    return statement.where(*predicates) if predicates else statement
+
+
+def _metadata_predicates(filters: MetadataFilterPlan) -> list[ColumnElement[bool]]:
+    columns: dict[str, Any] = {
+        "filename": LogicalDocumentRecord.display_filename,
+        "media_type": DocumentVersionRecord.media_type,
+        "parser_strategy": DocumentVersionRecord.parser_strategy,
+        "chunk_strategy": ChunkRecord.strategy,
+        "page_number": ChunkRecord.page_number,
+        "created_at": DocumentVersionRecord.created_at,
+    }
+    predicates: list[ColumnElement[bool]] = []
+    for condition in filters.conditions:
+        column = columns[condition.field]
+        value: Any = condition.value
+        if condition.field == "created_at":
+            if isinstance(value, list):
+                value = [_parse_datetime(item) for item in value]
+            else:
+                value = _parse_datetime(value)
+        operator = condition.operator
+        if operator is MetadataOperator.EQ:
+            predicates.append(column == value)
+        elif operator is MetadataOperator.NE:
+            predicates.append(column != value)
+        elif operator is MetadataOperator.IN:
+            predicates.append(column.in_(value))
+        elif operator is MetadataOperator.CONTAINS:
+            predicates.append(column.contains(str(value), autoescape=True))
+        elif operator is MetadataOperator.GT:
+            predicates.append(column > value)
+        elif operator is MetadataOperator.GTE:
+            predicates.append(column >= value)
+        elif operator is MetadataOperator.LT:
+            predicates.append(column < value)
+        elif operator is MetadataOperator.LTE:
+            predicates.append(column <= value)
+    return predicates
+
+
+def _parse_datetime(value: object) -> datetime:
+    if not isinstance(value, str):
+        raise RetrievalError(
+            "created_at filter values must be ISO-8601 strings",
+            code="invalid_metadata_filter",
+        )
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RetrievalError(
+            "created_at filter values must be valid ISO-8601 strings",
+            code="invalid_metadata_filter",
+        ) from exc
+
+
+def _active_chunk_from_row(row: Sequence[Any]) -> ActiveChunk:
+    return ActiveChunk(
+        chunk_id=str(row[0]),
+        collection_id=UUID(str(row[1])),
+        document_id=UUID(str(row[2])),
+        version_id=UUID(str(row[3])),
+        filename=str(row[4]),
+        media_type=str(row[5]),
+        parser_strategy=str(row[6]),
+        chunk_strategy=str(row[7]),
+        ordinal=int(row[8]),
+        text=str(row[9]),
+        locator=str(row[10]),
+        page_number=int(row[11]) if row[11] is not None else None,
+        heading_path=tuple(row[12]),
+        token_count=int(row[13]),
+        created_at=row[14],
+    )
+
+
+def _query_terms(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+(?:[._:/-][a-z0-9]+)*", text.casefold())
+
+
+def _matched_terms(terms: Sequence[str], text: str) -> list[str]:
+    haystack = set(_query_terms(text))
+    return sorted(set(terms) & haystack)
+
+
+def _bm25(
+    chunks: Sequence[ActiveChunk], terms: Sequence[str], limit: int
+) -> list[tuple[ActiveChunk, float, list[str]]]:
+    if not chunks:
+        return []
+    tokenized = [_query_terms(chunk.text) for chunk in chunks]
+    average_length = sum(len(tokens) for tokens in tokenized) / len(tokenized)
+    document_frequency = Counter(
+        term for tokens in tokenized for term in set(tokens) if term in terms
+    )
+    scored: list[tuple[ActiveChunk, float, list[str]]] = []
+    for chunk, tokens in zip(chunks, tokenized, strict=True):
+        frequencies = Counter(tokens)
+        score = 0.0
+        for term in set(terms):
+            frequency = frequencies[term]
+            if frequency == 0:
+                continue
+            inverse_frequency = math.log(
+                1
+                + (len(chunks) - document_frequency[term] + 0.5)
+                / (document_frequency[term] + 0.5)
+            )
+            denominator = frequency + 1.2 * (
+                1 - 0.75 + 0.75 * len(tokens) / max(average_length, 1)
+            )
+            score += inverse_frequency * (frequency * 2.2) / denominator
+        if score > 0:
+            scored.append((chunk, score, _matched_terms(terms, chunk.text)))
+    scored.sort(key=lambda item: (-item[1], item[0].chunk_id))
+    return scored[:limit]
 
 
 def _collection_response(record: CollectionRecord) -> CollectionResponse:

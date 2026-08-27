@@ -203,3 +203,29 @@ class IngestionJobRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
+
+
+class StructuredTableRecord(Base):
+    __tablename__ = "structured_tables"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "physical_name", name="uq_structured_physical_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("documents.id", ondelete="RESTRICT"), nullable=False
+    )
+    version_id: Mapped[str] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="RESTRICT"), nullable=False, unique=True
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    physical_name: Mapped[str] = mapped_column(String(63), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    schema_definition: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )

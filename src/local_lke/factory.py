@@ -3,6 +3,13 @@
 from local_lke.ingestion import IngestionService
 from local_lke.providers import LangChainChatProvider, LocalHuggingFaceEmbeddings
 from local_lke.rag import RAGPipeline
+from local_lke.retrieval import (
+    AdvancedRetrievalService,
+    LocalCrossEncoderReranker,
+    MetadataPlanParser,
+    StructuredDataService,
+    StructuredPlanParser,
+)
 from local_lke.settings import Settings
 from local_lke.storage import (
     SqlAlchemyIngestionRepository,
@@ -23,3 +30,32 @@ def create_ingestion_service(settings: Settings) -> IngestionService:
     engine = create_database_engine(settings.database_url)
     repository = SqlAlchemyIngestionRepository(create_session_factory(engine), engine)
     return IngestionService(repository, settings)
+
+
+def create_retrieval_services(
+    settings: Settings,
+    pipeline: RAGPipeline,
+    ingestion: IngestionService,
+) -> tuple[AdvancedRetrievalService, StructuredDataService]:
+    repository = ingestion.repository
+    if not isinstance(repository, SqlAlchemyIngestionRepository):
+        raise TypeError("Chapter 4 services require the SQLAlchemy repository")
+    reranker = (
+        LocalCrossEncoderReranker(settings.reranker_model)
+        if settings.reranker_enabled
+        else None
+    )
+    retrieval = AdvancedRetrievalService(
+        repository=repository,
+        embeddings=pipeline.embeddings,
+        chat=pipeline.chat,
+        settings=settings,
+        reranker=reranker,
+        metadata_planner=MetadataPlanParser(pipeline.chat),
+    )
+    structured = StructuredDataService(
+        repository,
+        settings,
+        StructuredPlanParser(pipeline.chat),
+    )
+    return retrieval, structured
