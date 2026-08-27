@@ -1,4 +1,4 @@
-# Chapters 1, 2, and 4 Architecture
+# Chapters 1-4 Architecture
 
 Chapter 1 is a measured naive-RAG baseline. It separates the four stages so later
 chapters can improve one stage without changing the public answer contract.
@@ -28,21 +28,31 @@ query baseline:
 FastAPI and Gradio share both the `RAGPipeline` and `IngestionService`. The query
 pipeline remains available as the measured in-memory fixture baseline.
 
-Chapter 4 intentionally skips the Chapter 3 milestone and adds a bounded bridge
-from Chapter 2 chunks:
+Chapter 3 makes Chapter 2's active versions persistently searchable:
+
+| Indexing stage | Responsibility | Implementation |
+|---|---|---|
+| Profile | Version model, revision, dimension, normalization, prefixes, modality | `providers/embeddings.py`, `indexing/repository.py` |
+| Build | Derive sentence/chunk/section nodes and embed in resumable batches | `indexing/service.py` |
+| Activate | Keep partial builds hidden; atomically replace stale active nodes | `indexing/repository.py`, `storage/models.py` |
+| Search/expand | HNSW cosine candidates, windows, parents, multi-granularity, budget | `indexing/service.py` |
+| Multimodal | Validate images and run optional local joint-space retrieval | `indexing/images.py`, `providers/multimodal.py` |
+
+Chapter 4 consumes that stable seam and adds bounded advanced retrieval:
 
 | Retrieval stage | Responsibility | Implementation |
 |---|---|---|
 | Plan | Normalize, route, decompose, and validate metadata | `retrieval/planning.py`, `models.py` |
-| Recall | On-demand dense cosine plus lifecycle-scoped PostgreSQL FTS/BM25 | `retrieval/service.py`, `storage/repository.py`, `migrations/` |
+| Recall | Persistent-first dense cosine plus lifecycle-scoped PostgreSQL FTS/BM25 | `indexing/`, `retrieval/service.py`, `storage/repository.py`, `migrations/` |
 | Fusion/precision | RRF identity fusion and optional local cross-encoder | `retrieval/service.py`, `retrieval/reranking.py` |
 | Context | Coverage-first dedupe/diversity/token packing with manifest | `retrieval/service.py` |
 | Correction | Deterministic sufficiency, one alternate retrieval, abstention | `retrieval/service.py` |
 | Structured | CSV typing/provenance and Pydantic-to-SQLAlchemy compilation | `retrieval/structured.py` |
 
-The absence of Chapter 3 is explicit: no persistent dense vectors, ANN index,
-multimodal store, or embedding-profile activation exists. This keeps the Chapter
-4 feature set honest while preserving a clear seam for later indexing work.
+The old on-demand dense path remains a compatibility fallback when a collection
+has no complete compatible index. It is not used to disguise a failed or
+dimension-incompatible active profile: index health and job errors remain
+visible.
 
 ## Trace timings
 

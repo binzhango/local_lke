@@ -1,12 +1,11 @@
 # Local LKE
 
 Local LKE is an English, executable companion for learning Retrieval-Augmented
-Generation (RAG). Chapter 4 adds hybrid, metadata-aware, corrective, and safe
-structured retrieval to the Chapter 1 cited baseline and Chapter 2 versioned
-ingestion. Chapter 3 is intentionally skipped: dense retrieval embeds active
-chunks on demand rather than claiming a persistent pgvector index. One FastAPI
-and Gradio application exposes collections, ingestion, retrieval-stage traces,
-context manifests, CSV schemas, safe SQL previews, and cited answers.
+Generation (RAG). Chapters 1-4 now provide a cited baseline, versioned ingestion,
+persistent pgvector and multimodal indexing, and hybrid, metadata-aware,
+corrective retrieval. One FastAPI and Gradio application exposes collections,
+ingestion and indexing jobs, retrieval-stage traces, context manifests, image
+search, CSV schemas, safe SQL previews, and cited answers.
 
 The deterministic suite creates isolated SQLite stores and a temporary local
 PostgreSQL 18 cluster; it needs no model server or network access. Interactive
@@ -17,7 +16,7 @@ OpenAI-compatible endpoint.
 
 - macOS or Linux
 - [`uv`](https://docs.astral.sh/uv/) for Python and dependency management
-- PostgreSQL 18 (`brew install postgresql@18` on macOS)
+- PostgreSQL 18 and pgvector (`brew install postgresql@18 pgvector` on macOS)
 - Optional for interactive answers: LM Studio or `llama-server`
 
 The application uses the explicit Homebrew PostgreSQL 18 binary directory at
@@ -83,7 +82,7 @@ make check      # lint, typecheck, and deterministic tests
 uv run lke openapi  # export .artifacts/openapi.json
 ```
 
-## Chapter 4 capabilities and boundaries
+## Chapters 2-4 capabilities and boundaries
 
 - Named collections and `.md`, `.txt`, and `.pdf` uploads
 - Immutable versions with SHA-256 content and pipeline hashes
@@ -91,16 +90,21 @@ uv run lke openapi  # export .artifacts/openapi.json
 - Recursive, Markdown-aware, and experimental sentence-semantic chunking
 - Inspectable persistent jobs, parser previews, versions, and chunks
 - Safe local single-user upload boundary with size, MIME, filename, and PDF checks
+- Versioned local BGE embedding profiles, bounded resumable batches, and
+  transactional index activation
+- Persistent pgvector text nodes with HNSW cosine search and visible index health
+- Sentence-window, parent-child, and multi-granularity context expansion under a
+  token budget
+- Optional local CLIP text-to-image and image-to-image search over validated
+  PNG, JPEG, and WebP assets
 - Active-version PostgreSQL English full-text search with a generated `tsvector`
   and GIN index
-- On-demand local dense search, RRF hybrid fusion, and optional local
-  cross-encoder reranking
+- Persistent-first local dense search with a compatibility fallback, RRF hybrid
+  fusion, and optional local cross-encoder reranking
 - Allowlisted metadata filters, bounded decomposition, step-back/HyDE probes,
   context manifests, one corrective retry, and evidence-based abstention
 - Validated CSV schema inference and SQLAlchemy-compiled read-only structured queries
 - The no-collection API path still preserves the Chapter 1 fixture baseline
-- Persistent pgvector/HNSW, multimodal indexing, and embedding profiles remain
-  absent because Chapter 3 was intentionally skipped
 - Authentication and multi-user ACLs remain out of scope
 
 See the [Chapter 1 learning notes](docs/chapter-01-knowledge-guide.md),
@@ -110,19 +114,28 @@ and [initial RAG issue baseline](docs/blog-coverage.md).
 For this milestone, see the [Chapter 2 learning notes](docs/chapter-02-knowledge-guide.md),
 [implementation report](docs/chapter-02-implementation.md), and
 [ingestion operations guide](docs/chapter-02-ingestion.md).
+Chapter 3 adds the [indexing and embeddings learning guide](docs/chapter-03-knowledge-guide.md),
+[implementation report](docs/chapter-03-implementation.md), and
+[indexing operations guide](docs/chapter-03-indexing.md).
 Chapter 4 adds the [advanced retrieval learning guide](docs/chapter-04-knowledge-guide.md),
 [implementation report](docs/chapter-04-implementation.md), and
 [retrieval operations guide](docs/chapter-04-retrieval.md).
 
 ## API
 
-- `GET /healthz` — component-level chat and embedding health
+- `GET /healthz` — component-level chat, embedding, database, and vector health
 - `POST/GET /api/v1/collections` — create and list collections
 - `POST /api/v1/collections/{id}/documents` — safely ingest one or more files
 - `GET /api/v1/jobs/{id}` and `POST /api/v1/jobs/{id}/retry` — inspect/retry jobs
 - `GET /api/v1/collections/{id}/documents` — list documents and version history
 - `GET /api/v1/document-versions/{id}/preview` — inspect elements and chunks
 - `DELETE /api/v1/documents/{id}` — soft-delete and deactivate versions
+- `POST /api/v1/document-versions/{id}/index` — build or resume one text index
+- `POST /api/v1/collections/{id}/index` and `GET .../index-state` — build/inspect
+  the active collection index
+- `POST /api/v1/retrieval-lab` — dense candidates plus bounded context expansion
+- `POST /api/v1/collections/{id}/images` and `/images/search/{text,image}` —
+  validate, index, and search local image assets
 - `POST /api/v1/query` — fixture baseline or collection-scoped dense/hybrid answer
 - `POST /api/v1/query/stream` — ordered `start`, `retrieval`, `delta`,
   `completion`, and `error` SSE events

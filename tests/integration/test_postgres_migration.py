@@ -12,6 +12,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
+from local_lke.indexing import IndexingService, SqlAlchemyIndexRepository
 from local_lke.ingestion import IngestionService
 from local_lke.models import (
     ChunkStrategy,
@@ -40,6 +41,12 @@ EXPECTED_TABLES = {
     "document_versions",
     "documents",
     "ingestion_jobs",
+    "indexing_jobs",
+    "embedding_profiles",
+    "collection_index_profiles",
+    "vector_nodes",
+    "image_assets",
+    "image_embeddings",
     "pipeline_configurations",
     "structured_tables",
 }
@@ -108,6 +115,16 @@ def test_migrations_apply_to_an_empty_postgresql_18_database() -> None:
                     and item["dialect_options"]["postgresql_using"] == "gin"
                     for item in chunk_indexes
                 )
+                vector_indexes = inspect(engine).get_indexes("vector_nodes")
+                assert any(
+                    item["name"] == "ix_vector_nodes_embedding_hnsw"
+                    and item["dialect_options"]["postgresql_using"] == "hnsw"
+                    for item in vector_indexes
+                )
+                with engine.connect() as connection:
+                    assert connection.exec_driver_sql(
+                        "SELECT extversion FROM pg_extension WHERE extname='vector'"
+                    ).scalar_one()
                 settings = Settings(
                     _env_file=None,
                     database_url=database_url,
@@ -131,11 +148,20 @@ def test_migrations_apply_to_an_empty_postgresql_18_database() -> None:
                 assert job.status is JobStatus.COMPLETED
                 assert job.version_id is not None
                 assert service.preview(job.version_id).chunks[0].locator == "lines:1-1"
+                persistent = IndexingService(
+                    SqlAlchemyIndexRepository(create_session_factory(engine), engine),
+                    DeterministicFakeEmbeddings(384),
+                    settings,
+                )
+                indexed = persistent.index_version(job.version_id)
+                assert indexed.status is JobStatus.COMPLETED
+                assert persistent.state(collection.id).missing_active_chunks == 0
                 retrieval = AdvancedRetrievalService(
                     repository=service.repository,
                     embeddings=DeterministicFakeEmbeddings(),
                     chat=FakeChatProvider("PostgreSQL preserves immutable chunk provenance."),
                     settings=settings,
+                    indexing=persistent,
                 )
                 retrieved = retrieval.retrieve(
                     QueryRequest(

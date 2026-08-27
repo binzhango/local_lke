@@ -7,7 +7,13 @@ from typing import cast
 import gradio as gr
 from fastapi import FastAPI
 
-from local_lke.factory import create_ingestion_service, create_pipeline, create_retrieval_services
+from local_lke.factory import (
+    create_indexing_services,
+    create_ingestion_service,
+    create_pipeline,
+    create_retrieval_services,
+)
+from local_lke.indexing import IndexingService, MultimodalIndexingService
 from local_lke.ingestion import IngestionService
 from local_lke.rag import RAGPipeline
 from local_lke.retrieval import AdvancedRetrievalService, StructuredDataService
@@ -22,12 +28,19 @@ def create_app(
     ingestion: IngestionService | None = None,
     retrieval: AdvancedRetrievalService | None = None,
     structured: StructuredDataService | None = None,
+    indexing: IndexingService | None = None,
+    multimodal: MultimodalIndexingService | None = None,
 ) -> FastAPI:
     resolved_settings = settings or get_settings()
     resolved_pipeline = pipeline or create_pipeline(resolved_settings)
     resolved_ingestion = ingestion or create_ingestion_service(resolved_settings)
-    default_retrieval, default_structured = create_retrieval_services(
+    default_indexing, default_multimodal = create_indexing_services(
         resolved_settings, resolved_pipeline, resolved_ingestion
+    )
+    resolved_indexing = indexing or default_indexing
+    resolved_multimodal = multimodal or default_multimodal
+    default_retrieval, default_structured = create_retrieval_services(
+        resolved_settings, resolved_pipeline, resolved_ingestion, resolved_indexing
     )
     resolved_retrieval = retrieval or default_retrieval
     resolved_structured = structured or default_structured
@@ -42,20 +55,24 @@ def create_app(
 
     app = FastAPI(
         title="Local LKE RAG API",
-        version="0.4.0",
-        description="Chapter 4 hybrid, corrective, and structured retrieval workbench.",
+        version="0.4.1",
+        description="Persistent Chapter 3 indexes with Chapter 4 advanced retrieval.",
         lifespan=lifespan,
     )
     app.state.pipeline = resolved_pipeline
     app.state.ingestion = resolved_ingestion
     app.state.retrieval = resolved_retrieval
     app.state.structured = resolved_structured
+    app.state.indexing = resolved_indexing
+    app.state.multimodal = resolved_multimodal
     app.include_router(
         create_router(
             resolved_pipeline,
             resolved_ingestion,
             resolved_retrieval,
             resolved_structured,
+            resolved_indexing,
+            resolved_multimodal,
         )
     )
     install_error_handlers(app)
@@ -65,5 +82,7 @@ def create_app(
         resolved_ingestion,
         resolved_retrieval,
         resolved_structured,
+        resolved_indexing,
+        resolved_multimodal,
     )
     return cast(FastAPI, gr.mount_gradio_app(app, workbench, path="/app"))

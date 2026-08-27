@@ -10,7 +10,11 @@ from alembic import command
 from alembic.config import Config
 
 from local_lke.errors import ProviderUnavailableError
-from local_lke.factory import create_ingestion_service, create_pipeline
+from local_lke.factory import (
+    create_indexing_services,
+    create_ingestion_service,
+    create_pipeline,
+)
 from local_lke.logging import configure_logging
 from local_lke.providers import DeterministicFakeEmbeddings, FakeChatProvider
 from local_lke.rag import RAGPipeline
@@ -111,10 +115,20 @@ def run_doctor(settings: Settings, *, skip_providers: bool, skip_database: bool 
             )
             print(f"[ok] postgresql binary: {version_result.stdout.strip()}")
         try:
-            print(f"[ok] database: {create_ingestion_service(settings).check_health()}")
+            ingestion = create_ingestion_service(settings)
+            print(f"[ok] database: {ingestion.check_health()}")
         except Exception as exc:
             failures += 1
             print(f"[unavailable] database: {exc}")
+        else:
+            try:
+                indexing, _multimodal = create_indexing_services(
+                    settings, pipeline, ingestion
+                )
+                print(f"[ok] vector index: {indexing.check_health()}")
+            except Exception as exc:
+                failures += 1
+                print(f"[unavailable] vector index: {exc}")
     return 1 if failures else 0
 
 

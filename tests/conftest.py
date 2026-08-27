@@ -7,8 +7,17 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 import pytest
 from fastapi.testclient import TestClient
 
+from local_lke.indexing import (
+    IndexingService,
+    MultimodalIndexingService,
+    SqlAlchemyIndexRepository,
+)
 from local_lke.ingestion import IngestionService
-from local_lke.providers import DeterministicFakeEmbeddings, FakeChatProvider
+from local_lke.providers import (
+    DeterministicFakeEmbeddings,
+    DeterministicFakeMultimodalEmbeddings,
+    FakeChatProvider,
+)
 from local_lke.rag import RAGPipeline
 from local_lke.settings import Settings
 from local_lke.storage import (
@@ -27,6 +36,9 @@ def settings(tmp_path: Path) -> Settings:
         chat_base_url="http://127.0.0.1:1234/v1",
         chat_model="test-model",
         embedding_model="test-embeddings",
+        embedding_dimension=64,
+        embedding_batch_size=2,
+        multimodal_dimension=8,
         database_url=f"sqlite+pysqlite:///{tmp_path / 'test.db'}",
         upload_directory=tmp_path / "uploads",
     )
@@ -52,8 +64,46 @@ def ingestion(settings: Settings) -> IngestionService:
 
 
 @pytest.fixture
-def client(
+def indexing(
     settings: Settings, pipeline: RAGPipeline, ingestion: IngestionService
+) -> IndexingService:
+    repository = ingestion.repository
+    assert isinstance(repository, SqlAlchemyIngestionRepository)
+    return IndexingService(
+        SqlAlchemyIndexRepository(repository.sessions, repository.engine),
+        pipeline.embeddings,
+        settings,
+    )
+
+
+@pytest.fixture
+def multimodal(
+    settings: Settings, ingestion: IngestionService
+) -> MultimodalIndexingService:
+    repository = ingestion.repository
+    assert isinstance(repository, SqlAlchemyIngestionRepository)
+    return MultimodalIndexingService(
+        SqlAlchemyIndexRepository(repository.sessions, repository.engine),
+        DeterministicFakeMultimodalEmbeddings(),
+        settings,
+    )
+
+
+@pytest.fixture
+def client(
+    settings: Settings,
+    pipeline: RAGPipeline,
+    ingestion: IngestionService,
+    indexing: IndexingService,
+    multimodal: MultimodalIndexingService,
 ) -> Iterator[TestClient]:
-    with TestClient(create_app(settings, pipeline, ingestion)) as test_client:
+    with TestClient(
+        create_app(
+            settings,
+            pipeline,
+            ingestion,
+            indexing=indexing,
+            multimodal=multimodal,
+        )
+    ) as test_client:
         yield test_client

@@ -25,9 +25,19 @@ class Settings(BaseSettings):
     chat_timeout_seconds: float = Field(default=60.0, gt=0)
     chat_max_retries: int = Field(default=1, ge=0, le=10)
     embedding_model: str = Field(
-        default="sentence-transformers/all-MiniLM-L6-v2",
+        default="BAAI/bge-small-en-v1.5",
         min_length=1,
     )
+    embedding_model_revision: str = Field(default="main", min_length=1)
+    embedding_dimension: int = Field(default=384, ge=8, le=16_384)
+    embedding_normalize: bool = True
+    embedding_document_prefix: str = ""
+    embedding_query_prefix: str = "Represent this sentence for searching relevant passages: "
+    embedding_batch_size: int = Field(default=32, ge=1, le=1024)
+    multimodal_model: str = Field(default="sentence-transformers/clip-ViT-B-32", min_length=1)
+    multimodal_model_revision: str = Field(default="main", min_length=1)
+    multimodal_dimension: int = Field(default=512, ge=8, le=16_384)
+    max_image_pixels: int = Field(default=40_000_000, ge=1)
     default_top_k: int = Field(default=3, ge=1, le=20)
     database_url: str = "postgresql+psycopg://localhost/local_lke"
     postgres_bin_directory: Path = Path("/opt/homebrew/opt/postgresql@18/bin")
@@ -76,6 +86,16 @@ class Settings(BaseSettings):
             "chat_timeout_seconds": self.chat_timeout_seconds,
             "chat_max_retries": self.chat_max_retries,
             "embedding_model": self.embedding_model,
+            "embedding_model_revision": self.embedding_model_revision,
+            "embedding_dimension": self.embedding_dimension,
+            "embedding_normalize": str(self.embedding_normalize),
+            "embedding_document_prefix": self.embedding_document_prefix,
+            "embedding_query_prefix": self.embedding_query_prefix,
+            "embedding_batch_size": self.embedding_batch_size,
+            "multimodal_model": self.multimodal_model,
+            "multimodal_model_revision": self.multimodal_model_revision,
+            "multimodal_dimension": self.multimodal_dimension,
+            "max_image_pixels": self.max_image_pixels,
             "database_url": _redact_database_url(self.database_url),
             "upload_directory": str(self.upload_directory),
             "max_upload_bytes": self.max_upload_bytes,

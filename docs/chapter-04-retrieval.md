@@ -6,9 +6,11 @@
 make init-postgres
 ```
 
-The migration adds a generated English `tsvector`, its GIN index, and structured
-table metadata. It does not install pgvector because Chapter 3 is intentionally
-not part of this milestone.
+The Chapter 4 migration adds a generated English `tsvector`, its GIN index, and
+structured-table metadata. `make init-postgres` now also applies the later
+Chapter 3 migration, which enables pgvector and creates the persistent HNSW
+indexes. See [Chapter 3 indexing operations](chapter-03-indexing.md) when vector
+health is unavailable.
 
 ## Query persisted documents
 

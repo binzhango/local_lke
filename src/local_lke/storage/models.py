@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -11,12 +12,16 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+TEXT_EMBEDDING_DIMENSION = 384
+MULTIMODAL_EMBEDDING_DIMENSION = 512
 
 
 def utc_now() -> datetime:
@@ -202,6 +207,186 @@ class IngestionJobRecord(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class EmbeddingProfileRecord(Base):
+    __tablename__ = "embedding_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "modality",
+            "model_id",
+            "revision",
+            "dimension",
+            "normalized",
+            "document_prefix",
+            "query_prefix",
+            name="uq_embedding_profile_contract",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    modality: Mapped[str] = mapped_column(String(20), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    revision: Mapped[str] = mapped_column(String(120), nullable=False)
+    dimension: Mapped[int] = mapped_column(Integer, nullable=False)
+    normalized: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    document_prefix: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    query_prefix: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class CollectionIndexProfileRecord(Base):
+    __tablename__ = "collection_index_profiles"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "profile_id", name="uq_collection_profile"),
+        Index(
+            "uq_collection_one_active_profile_per_modality",
+            "collection_id",
+            "modality",
+            unique=True,
+            postgresql_where=text("active = true"),
+            sqlite_where=text("active = 1"),
+        ),
+    )
+
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="RESTRICT"), primary_key=True
+    )
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("embedding_profiles.id", ondelete="RESTRICT"), primary_key=True
+    )
+    modality: Mapped[str] = mapped_column(String(20), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class VectorNodeRecord(Base):
+    __tablename__ = "vector_nodes"
+    __table_args__ = (
+        Index(
+            "ix_vector_nodes_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("documents.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    version_id: Mapped[str] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    chunk_id: Mapped[str] = mapped_column(
+        ForeignKey("chunks.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    parent_element_id: Mapped[str | None] = mapped_column(
+        ForeignKey("document_elements.id", ondelete="RESTRICT")
+    )
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("embedding_profiles.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    granularity: Mapped[str] = mapped_column(String(20), nullable=False)
+    unit_ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    locator: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(TEXT_EMBEDDING_DIMENSION).with_variant(JSON(), "sqlite"), nullable=False
+    )
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class IndexingJobRecord(Base):
+    __tablename__ = "indexing_jobs"
+    __table_args__ = (
+        UniqueConstraint("version_id", "profile_id", name="uq_index_job_version_profile"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    version_id: Mapped[str] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("embedding_profiles.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued")
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_nodes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    embedded_nodes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    embedding_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class ImageAssetRecord(Base):
+    __tablename__ = "image_assets"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "sha256", name="uq_image_collection_content"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("collections.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class ImageEmbeddingRecord(Base):
+    __tablename__ = "image_embeddings"
+    __table_args__ = (
+        UniqueConstraint("image_id", "profile_id", name="uq_image_embedding_profile"),
+        Index(
+            "ix_image_embeddings_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+    image_id: Mapped[str] = mapped_column(
+        ForeignKey("image_assets.id", ondelete="RESTRICT"), primary_key=True
+    )
+    profile_id: Mapped[str] = mapped_column(
+        ForeignKey("embedding_profiles.id", ondelete="RESTRICT"), primary_key=True
+    )
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(MULTIMODAL_EMBEDDING_DIMENSION).with_variant(JSON(), "sqlite"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
     )
 
 

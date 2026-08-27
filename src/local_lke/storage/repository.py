@@ -39,6 +39,7 @@ from local_lke.storage.models import (
     IngestionJobRecord,
     LogicalDocumentRecord,
     PipelineConfigurationRecord,
+    VectorNodeRecord,
 )
 
 
@@ -388,6 +389,11 @@ class SqlAlchemyIngestionRepository:
                 if version.active:
                     version.active = False
                     version.inactive_reason = reason
+            session.execute(
+                update(VectorNodeRecord)
+                .where(VectorNodeRecord.document_id == str(document_id))
+                .values(active=False)
+            )
             session.flush()
             return _document_response(record)
 

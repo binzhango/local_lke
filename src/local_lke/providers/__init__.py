@@ -6,12 +6,20 @@ from local_lke.providers.embeddings import (
     EmbeddingProvider,
     LocalHuggingFaceEmbeddings,
 )
+from local_lke.providers.multimodal import (
+    DeterministicFakeMultimodalEmbeddings,
+    LocalCLIPEmbeddings,
+    MultimodalEmbeddingProvider,
+)
 
 __all__ = [
     "ChatProvider",
     "DeterministicFakeEmbeddings",
+    "DeterministicFakeMultimodalEmbeddings",
     "EmbeddingProvider",
     "FakeChatProvider",
     "LangChainChatProvider",
+    "LocalCLIPEmbeddings",
     "LocalHuggingFaceEmbeddings",
+    "MultimodalEmbeddingProvider",
 ]

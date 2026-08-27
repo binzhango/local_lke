@@ -14,10 +14,12 @@ os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 import gradio as gr
 
 from local_lke.errors import LKEError
+from local_lke.indexing import IndexingService, MultimodalIndexingService
 from local_lke.ingestion import IngestionService
 from local_lke.models import (
     AnswerResponse,
     ChunkStrategy,
+    ExpansionStrategy,
     MetadataFilterPlan,
     ParserStrategy,
     QueryRequest,
@@ -25,6 +27,7 @@ from local_lke.models import (
     RewriteStrategy,
     StructuredQueryPlan,
     StructuredQueryRequest,
+    VectorSearchRequest,
 )
 from local_lke.rag import RAGPipeline
 from local_lke.retrieval import AdvancedRetrievalService, StructuredDataService
@@ -38,9 +41,11 @@ def build_workbench(
     ingestion: IngestionService | None = None,
     retrieval: AdvancedRetrievalService | None = None,
     structured: StructuredDataService | None = None,
+    indexing: IndexingService | None = None,
+    multimodal: MultimodalIndexingService | None = None,
 ) -> gr.Blocks:
     with gr.Blocks(title="Local LKE RAG Workbench") as workbench:
-        gr.Markdown("# Local LKE · Chapter 4 Retrieval Workbench")
+        gr.Markdown("# Local LKE · Chapters 3-4 Indexing and Retrieval Workbench")
 
         with gr.Tab("Setup"):
             gr.Markdown(
@@ -51,7 +56,7 @@ def build_workbench(
             health_output = gr.JSON(label="System health")
             health_button = gr.Button("Check system health")
             health_button.click(
-                fn=lambda: provider_health(pipeline, ingestion),
+                fn=lambda: provider_health(pipeline, ingestion, indexing),
                 outputs=health_output,
             )
 
@@ -118,6 +123,7 @@ def build_workbench(
                             chunker,
                             int(size),
                             int(overlap),
+                            indexing,
                         )
                     ),
                     inputs=[
@@ -171,6 +177,28 @@ def build_workbench(
             )
             retrieval_collection = gr.Dropdown(label="Collection", choices=[])
             refresh_retrieval_collections = gr.Button("Refresh retrieval collections")
+            with gr.Row():
+                build_index = gr.Button("Index active versions")
+                inspect_index = gr.Button("Inspect index state")
+            index_state_output = gr.JSON(
+                label="Embedding profile, build progress, active nodes, and missing vectors"
+            )
+            vector_question = gr.Textbox(label="Persistent vector-lab question")
+            with gr.Row():
+                expansion = gr.Dropdown(
+                    [item.value for item in ExpansionStrategy],
+                    value=ExpansionStrategy.NONE.value,
+                    label="Context expansion",
+                )
+                vector_top_k = gr.Slider(1, 20, value=5, step=1, label="Vector Top K")
+                token_budget = gr.Number(
+                    value=settings.retrieval_context_tokens,
+                    label="Context token budget",
+                )
+            run_vector_lab = gr.Button("Run persistent vector lab")
+            vector_candidates = gr.JSON(
+                label="Child scores, parent/window expansion, duplicates, and final context"
+            )
             retrieval_question = gr.Textbox(label="Persisted-data question")
             with gr.Row():
                 retrieval_strategy = gr.Dropdown(
@@ -234,6 +262,37 @@ def build_workbench(
                         context_manifest,
                     ],
                 )
+                if indexing is not None:
+                    build_index.click(
+                        fn=lambda collection_id: index_collection_callback(
+                            indexing, collection_id
+                        ),
+                        inputs=retrieval_collection,
+                        outputs=index_state_output,
+                    )
+                    inspect_index.click(
+                        fn=lambda collection_id: index_state_callback(indexing, collection_id),
+                        inputs=retrieval_collection,
+                        outputs=index_state_output,
+                    )
+                    run_vector_lab.click(
+                        fn=lambda collection_id, query, mode, k, budget: vector_lab_callback(
+                            indexing,
+                            collection_id,
+                            query,
+                            mode,
+                            int(k),
+                            int(budget),
+                        ),
+                        inputs=[
+                            retrieval_collection,
+                            vector_question,
+                            expansion,
+                            vector_top_k,
+                            token_budget,
+                        ],
+                        outputs=vector_candidates,
+                    )
 
         with gr.Tab("Structured Data"):
             gr.Markdown(
@@ -281,6 +340,52 @@ def build_workbench(
                     outputs=structured_result,
                 )
 
+        with gr.Tab("Multimodal Search"):
+            gr.Markdown(
+                "Images are decoded and embedded locally. Results expose image provenance; "
+                "the text-only chat model is never described as having inspected them."
+            )
+            image_collection = gr.Dropdown(label="Collection", choices=[])
+            refresh_image_collections = gr.Button("Refresh image collections")
+            image_upload = gr.File(label="Upload image", file_count="single", type="filepath")
+            upload_image_button = gr.Button("Validate and index image")
+            image_upload_result = gr.JSON(label="Image metadata and provenance")
+            image_text_query = gr.Textbox(label="Text-to-image query")
+            image_query_file = gr.File(
+                label="Optional image-to-image query", file_count="single", type="filepath"
+            )
+            image_top_k = gr.Slider(1, 20, value=5, step=1, label="Image Top K")
+            with gr.Row():
+                text_image_search = gr.Button("Search images by text")
+                image_image_search = gr.Button("Search images by image")
+            image_search_result = gr.JSON(label="Ranked image content URLs and scores")
+            if ingestion is not None and multimodal is not None:
+                refresh_image_collections.click(
+                    fn=lambda: gr.update(choices=collection_choices(ingestion)),
+                    outputs=image_collection,
+                )
+                upload_image_button.click(
+                    fn=lambda collection_id, path: image_upload_callback(
+                        multimodal, collection_id, path
+                    ),
+                    inputs=[image_collection, image_upload],
+                    outputs=image_upload_result,
+                )
+                text_image_search.click(
+                    fn=lambda collection_id, query, k: image_text_callback(
+                        multimodal, collection_id, query, int(k)
+                    ),
+                    inputs=[image_collection, image_text_query, image_top_k],
+                    outputs=image_search_result,
+                )
+                image_image_search.click(
+                    fn=lambda collection_id, path, k: image_query_callback(
+                        multimodal, collection_id, path, int(k)
+                    ),
+                    inputs=[image_collection, image_query_file, image_top_k],
+                    outputs=image_search_result,
+                )
+
         ask.click(
             fn=lambda user_question, k: chat_callback(pipeline, user_question, int(k)),
             inputs=[question, top_k],
@@ -293,7 +398,9 @@ def build_workbench(
 
 
 def provider_health(
-    pipeline: RAGPipeline, ingestion: IngestionService | None = None
+    pipeline: RAGPipeline,
+    ingestion: IngestionService | None = None,
+    indexing: IndexingService | None = None,
 ) -> dict[str, dict[str, str]]:
     results: dict[str, dict[str, str]] = {}
     checks = {
@@ -303,6 +410,8 @@ def provider_health(
     }
     if ingestion is not None:
         checks["database"] = ingestion.check_health
+    if indexing is not None:
+        checks["vector_index"] = indexing.check_health
     for name, check in checks.items():
         try:
             results[name] = {"status": "ok", "detail": check()}
@@ -382,6 +491,7 @@ def upload_callback(
     chunk_strategy: str,
     chunk_size: int,
     chunk_overlap: int,
+    indexing: IndexingService | None = None,
 ) -> list[dict[str, object]] | dict[str, str]:
     if not collection_id:
         return {"error": "Choose a collection before uploading."}
@@ -407,6 +517,9 @@ def upload_callback(
                 chunk_overlap=chunk_overlap,
             )
             results.append(job.model_dump(mode="json"))
+            if indexing is not None and job.version_id is not None:
+                indexed = indexing.index_version(job.version_id)
+                results[-1]["indexing"] = indexed.model_dump(mode="json")
         except LKEError as exc:
             results.append({"filename": path.name, "error": str(exc), "code": exc.code})
     return results
@@ -523,5 +636,113 @@ def structured_query_callback(
             plan=StructuredQueryPlan.model_validate(plan) if plan else None,
         )
         return structured.query(payload).model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def index_collection_callback(
+    indexing: IndexingService, collection_id: str | None
+) -> dict[str, object]:
+    if not collection_id:
+        return {"error": "Choose a collection."}
+    try:
+        jobs = indexing.index_collection(UUID(collection_id))
+        return {
+            "jobs": [item.model_dump(mode="json") for item in jobs],
+            "state": indexing.state(UUID(collection_id)).model_dump(mode="json"),
+        }
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def index_state_callback(
+    indexing: IndexingService, collection_id: str | None
+) -> dict[str, object]:
+    if not collection_id:
+        return {"error": "Choose a collection."}
+    try:
+        return indexing.state(UUID(collection_id)).model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def vector_lab_callback(
+    indexing: IndexingService,
+    collection_id: str | None,
+    question: str,
+    expansion: str,
+    top_k: int,
+    token_budget: int,
+) -> dict[str, object]:
+    if not collection_id:
+        return {"error": "Choose a collection."}
+    try:
+        return indexing.search(
+            VectorSearchRequest(
+                collection_id=UUID(collection_id),
+                question=question,
+                expansion=ExpansionStrategy(expansion),
+                top_k=top_k,
+                token_budget=token_budget,
+            )
+        ).model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def image_upload_callback(
+    multimodal: MultimodalIndexingService,
+    collection_id: str | None,
+    path: str | None,
+) -> dict[str, object]:
+    if not collection_id or not path:
+        return {"error": "Choose a collection and image."}
+    try:
+        source = Path(path)
+        content_type, _ = mimetypes.guess_type(source.name)
+        return multimodal.ingest(
+            collection_id=UUID(collection_id),
+            filename=source.name,
+            content_type=content_type,
+            content=source.read_bytes(),
+        ).model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def image_text_callback(
+    multimodal: MultimodalIndexingService,
+    collection_id: str | None,
+    query: str,
+    top_k: int,
+) -> dict[str, object]:
+    if not collection_id:
+        return {"error": "Choose a collection."}
+    try:
+        return multimodal.search_text(
+            UUID(collection_id), query, top_k
+        ).model_dump(mode="json")
+    except (LKEError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+def image_query_callback(
+    multimodal: MultimodalIndexingService,
+    collection_id: str | None,
+    path: str | None,
+    top_k: int,
+) -> dict[str, object]:
+    if not collection_id or not path:
+        return {"error": "Choose a collection and query image."}
+    try:
+        source = Path(path)
+        content_type, _ = mimetypes.guess_type(source.name)
+        return multimodal.search_image(
+            UUID(collection_id),
+            source.name,
+            content_type,
+            source.read_bytes(),
+            top_k,
+        ).model_dump(mode="json")
     except (LKEError, ValueError) as exc:
         return {"error": str(exc)}

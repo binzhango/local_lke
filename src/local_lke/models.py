@@ -243,6 +243,24 @@ class JobStatus(StrEnum):
     INTERRUPTED = "interrupted"
 
 
+class EmbeddingModality(StrEnum):
+    TEXT = "text"
+    MULTIMODAL = "multimodal"
+
+
+class NodeGranularity(StrEnum):
+    SENTENCE = "sentence"
+    CHUNK = "chunk"
+    SECTION = "section"
+
+
+class ExpansionStrategy(StrEnum):
+    NONE = "none"
+    SENTENCE_WINDOW = "sentence_window"
+    PARENT = "parent"
+    MULTI = "multi"
+
+
 class DocumentElement(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -334,6 +352,101 @@ class ParserPreviewResponse(BaseModel):
     version: DocumentVersionResponse
     elements: list[DocumentElement]
     chunks: list[IngestedChunk]
+
+
+class EmbeddingProfileResponse(BaseModel):
+    id: UUID
+    modality: EmbeddingModality
+    model_id: str
+    revision: str
+    dimension: int = Field(ge=1)
+    normalized: bool
+    document_prefix: str = ""
+    query_prefix: str = ""
+    created_at: datetime
+
+
+class IndexingJobResponse(BaseModel):
+    id: UUID
+    collection_id: UUID
+    version_id: UUID
+    profile_id: UUID
+    status: JobStatus
+    progress: int = Field(ge=0, le=100)
+    total_nodes: int = Field(ge=0)
+    embedded_nodes: int = Field(ge=0)
+    embedding_calls: int = Field(ge=0)
+    skipped: bool = False
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IndexStateResponse(BaseModel):
+    collection_id: UUID
+    active_profile: EmbeddingProfileResponse | None = None
+    active_nodes: int = Field(ge=0)
+    active_chunks: int = Field(ge=0)
+    missing_active_chunks: int = Field(ge=0)
+    jobs: list[IndexingJobResponse] = Field(default_factory=list)
+
+
+class VectorSearchRequest(BaseModel):
+    collection_id: UUID
+    question: str = Field(min_length=2, max_length=2000)
+    profile_id: UUID | None = None
+    top_k: int = Field(default=5, ge=1, le=50)
+    expansion: ExpansionStrategy = ExpansionStrategy.NONE
+    token_budget: int | None = Field(default=None, ge=32, le=1_000_000)
+    sentence_window: int = Field(default=2, ge=0, le=20)
+
+
+class VectorSearchCandidate(BaseModel):
+    node_id: str
+    chunk_id: str
+    document_id: UUID
+    version_id: UUID
+    granularity: NodeGranularity
+    rank: int = Field(ge=1)
+    score: float
+    locator: str
+    child_text: str
+    context_text: str
+    trigger_node_id: str
+    token_count: int = Field(ge=1)
+    included: bool
+    decision: str
+
+
+class VectorSearchResponse(BaseModel):
+    profile: EmbeddingProfileResponse
+    candidates: list[VectorSearchCandidate]
+    final_context: list[VectorSearchCandidate]
+    final_token_count: int = Field(ge=0)
+
+
+class ImageAssetResponse(BaseModel):
+    id: UUID
+    collection_id: UUID
+    filename: str
+    media_type: str
+    width: int = Field(ge=1)
+    height: int = Field(ge=1)
+    sha256: str
+    created_at: datetime
+    content_url: str
+
+
+class ImageSearchHit(BaseModel):
+    image: ImageAssetResponse
+    rank: int = Field(ge=1)
+    score: float
+
+
+class ImageSearchResponse(BaseModel):
+    profile: EmbeddingProfileResponse
+    hits: list[ImageSearchHit]
 
 
 class ActiveChunk(BaseModel):

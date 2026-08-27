@@ -9,7 +9,8 @@ from time import perf_counter
 from typing import Literal, Protocol
 from uuid import UUID
 
-from local_lke.errors import RetrievalError
+from local_lke.errors import IndexingError, RetrievalError
+from local_lke.indexing import IndexingService
 from local_lke.models import (
     ActiveChunk,
     AdvancedRetrievalTrace,
@@ -24,6 +25,7 @@ from local_lke.models import (
     RetrievalStrategy,
     RewriteStrategy,
     TraceSummary,
+    VectorSearchRequest,
 )
 from local_lke.providers import ChatProvider, EmbeddingProvider
 from local_lke.retrieval.planning import MetadataPlanParser, build_query_plan, resolved_filters
@@ -124,6 +126,7 @@ class AdvancedRetrievalService:
         settings: Settings,
         reranker: Reranker | None = None,
         metadata_planner: MetadataPlanParser | None = None,
+        indexing: IndexingService | None = None,
     ) -> None:
         self.repository = repository
         self.embeddings = embeddings
@@ -131,6 +134,7 @@ class AdvancedRetrievalService:
         self.settings = settings
         self.reranker = reranker
         self.metadata_planner = metadata_planner
+        self.indexing = indexing
 
     def query(self, request: QueryRequest) -> AnswerResponse:
         if request.collection_id is None:
@@ -303,7 +307,7 @@ class AdvancedRetrievalService:
         by_id: dict[str, Candidate] = {}
         pool = self.settings.retrieval_candidate_limit
         for subquery in subqueries:
-            dense = _dense_search(self.embeddings, subquery, chunks, pool)
+            dense = self._dense_candidates(request, subquery, chunks, pool)
             lexical = (
                 self.repository.lexical_search(request.collection_id, subquery, filters, pool)
                 if request.strategy is RetrievalStrategy.HYBRID
@@ -340,6 +344,33 @@ class AdvancedRetrievalService:
                 )
             )
         return candidates[:pool]
+
+    def _dense_candidates(
+        self,
+        request: QueryRequest,
+        subquery: str,
+        chunks: list[ActiveChunk],
+        pool: int,
+    ) -> list[tuple[ActiveChunk, float]]:
+        if self.indexing is not None and request.collection_id is not None:
+            try:
+                response = self.indexing.search(
+                    VectorSearchRequest(
+                        collection_id=request.collection_id,
+                        question=subquery,
+                        top_k=pool,
+                    )
+                )
+                by_id = {chunk.chunk_id: chunk for chunk in chunks}
+                return [
+                    (by_id[item.chunk_id], item.score)
+                    for item in response.candidates
+                    if item.chunk_id in by_id
+                ]
+            except IndexingError as exc:
+                if exc.code not in {"index_not_ready", "embedding_dimension_mismatch"}:
+                    raise
+        return _dense_search(self.embeddings, subquery, chunks, pool)
 
     def _rerank(self, query: str, candidates: list[Candidate]) -> tuple[float, float]:
         if self.reranker is None or not candidates:

@@ -1,4 +1,7 @@
+from io import BytesIO
+
 from fastapi.testclient import TestClient
+from PIL import Image
 
 QUESTION = "How quickly does Atlas acknowledge a priority-one incident?"
 
@@ -8,7 +11,12 @@ def test_health_has_component_status(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert set(response.json()["components"]) == {"database", "chat", "embeddings"}
+    assert set(response.json()["components"]) == {
+        "database",
+        "chat",
+        "embeddings",
+        "vector_index",
+    }
 
 
 def test_query_returns_the_stable_answer_contract(client: TestClient) -> None:
@@ -190,3 +198,64 @@ def test_structured_upload_and_query_api_never_accepts_raw_sql(client: TestClien
     assert query.json()["rows"] == [{"region": "West", "revenue": 250}]
     assert rejected.status_code == 422
     assert rejected.json()["error"]["code"] == "validation_error"
+
+
+def test_upload_builds_persistent_index_and_retrieval_lab_exposes_context_decisions(
+    client: TestClient,
+) -> None:
+    collection_id = client.post(
+        "/api/v1/collections", json={"name": "Persistent index API"}
+    ).json()["id"]
+    upload = client.post(
+        f"/api/v1/collections/{collection_id}/documents",
+        files={
+            "files": (
+                "policy.txt",
+                b"Priority one is acknowledged in fifteen minutes. Updates follow every hour.",
+                "text/plain",
+            )
+        },
+        data={"chunk_strategy": "recursive"},
+    )
+    state = client.get(f"/api/v1/collections/{collection_id}/index-state")
+    lab = client.post(
+        "/api/v1/retrieval-lab",
+        json={
+            "collection_id": collection_id,
+            "question": "When is priority one acknowledged?",
+            "top_k": 3,
+            "expansion": "sentence_window",
+            "token_budget": 100,
+        },
+    )
+
+    assert upload.status_code == 202
+    assert state.json()["missing_active_chunks"] == 0
+    assert state.json()["active_profile"]["dimension"] == 64
+    assert lab.status_code == 200
+    assert lab.json()["final_context"][0]["trigger_node_id"]
+    assert lab.json()["final_token_count"] <= 100
+
+
+def test_multimodal_api_returns_provenance_without_chat_claims(client: TestClient) -> None:
+    collection_id = client.post(
+        "/api/v1/collections", json={"name": "Multimodal API"}
+    ).json()["id"]
+    output = BytesIO()
+    Image.new("RGB", (24, 24), (255, 0, 0)).save(output, format="PNG")
+    content = output.getvalue()
+    uploaded = client.post(
+        f"/api/v1/collections/{collection_id}/images",
+        files={"file": ("red.png", content, "image/png")},
+    )
+    searched = client.post(
+        f"/api/v1/collections/{collection_id}/images/search/text",
+        data={"query": "red image", "top_k": 1},
+    )
+    content_response = client.get(uploaded.json()["content_url"])
+
+    assert uploaded.status_code == 201
+    assert searched.status_code == 200
+    assert searched.json()["hits"][0]["image"]["id"] == uploaded.json()["id"]
+    assert "answer" not in searched.json()
+    assert content_response.status_code == 200

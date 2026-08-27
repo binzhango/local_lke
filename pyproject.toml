@@ -1,6 +1,6 @@
 [project]
 name = "local-lke"
-version = "0.4.0"
+version = "0.4.1"
 description = "A local-first, inspectable RAG workbench and future knowledge-management expert system"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -14,6 +14,8 @@ dependencies = [
   "langchain-huggingface>=0.3.1,<2",
   "langchain-openai>=0.3.33,<2",
   "langchain-text-splitters>=0.3.11,<2",
+  "pgvector>=0.4,<1",
+  "pillow>=11,<13",
   "pydantic-settings>=2.10,<3",
   "psycopg[binary]>=3.2,<4",
   "pypdf>=5.9,<7",

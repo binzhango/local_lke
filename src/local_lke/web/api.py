@@ -8,9 +8,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 
-from local_lke.errors import IngestionError, LKEError, NotFoundError, RetrievalError
+from local_lke.errors import (
+    IndexingError,
+    IngestionError,
+    LKEError,
+    NotFoundError,
+    RetrievalError,
+)
+from local_lke.indexing import IndexingService, MultimodalIndexingService
 from local_lke.ingestion import IngestionService
 from local_lke.ingestion.safety import validate_upload
 from local_lke.models import (
@@ -23,6 +30,10 @@ from local_lke.models import (
     ErrorDetail,
     ErrorResponse,
     HealthResponse,
+    ImageAssetResponse,
+    ImageSearchResponse,
+    IndexingJobResponse,
+    IndexStateResponse,
     IngestionJobResponse,
     ParserPreviewResponse,
     ParserStrategy,
@@ -30,6 +41,8 @@ from local_lke.models import (
     StructuredQueryRequest,
     StructuredQueryResponse,
     StructuredTableResponse,
+    VectorSearchRequest,
+    VectorSearchResponse,
 )
 from local_lke.rag import RAGPipeline
 from local_lke.retrieval import AdvancedRetrievalService, StructuredDataService
@@ -40,6 +53,8 @@ def create_router(
     ingestion: IngestionService,
     retrieval: AdvancedRetrievalService,
     structured: StructuredDataService,
+    indexing: IndexingService,
+    multimodal: MultimodalIndexingService,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -50,6 +65,7 @@ def create_router(
             "database": ingestion.check_health,
             "chat": pipeline.chat.check_models,
             "embeddings": pipeline.embeddings.check_initialization,
+            "vector_index": indexing.check_health,
         }
         for name, check in checks.items():
             try:
@@ -175,7 +191,7 @@ def create_router(
                 chunk_overlap=chunk_overlap,
             )
             jobs.append(job)
-            background_tasks.add_task(ingestion.process, job.id)
+            background_tasks.add_task(_process_and_index, ingestion, indexing, job.id)
         return jobs
 
     @router.get("/api/v1/jobs/{job_id}", response_model=IngestionJobResponse)
@@ -184,7 +200,10 @@ def create_router(
 
     @router.post("/api/v1/jobs/{job_id}/retry", response_model=IngestionJobResponse)
     def retry_job(job_id: UUID) -> IngestionJobResponse:
-        return ingestion.retry(job_id)
+        job = ingestion.retry(job_id)
+        if job.status.value == "completed" and job.version_id is not None:
+            indexing.index_version(job.version_id)
+        return job
 
     @router.get(
         "/api/v1/collections/{collection_id}/documents",
@@ -203,6 +222,86 @@ def create_router(
     @router.delete("/api/v1/documents/{document_id}", response_model=DocumentResponse)
     def delete_document(document_id: UUID, reason: str = "deleted by user") -> DocumentResponse:
         return ingestion.delete_document(document_id, reason)
+
+    @router.post(
+        "/api/v1/document-versions/{version_id}/index",
+        response_model=IndexingJobResponse,
+    )
+    def index_version(version_id: UUID, force: bool = False) -> IndexingJobResponse:
+        return indexing.index_version(version_id, force=force)
+
+    @router.post(
+        "/api/v1/collections/{collection_id}/index",
+        response_model=list[IndexingJobResponse],
+    )
+    def index_collection(collection_id: UUID) -> list[IndexingJobResponse]:
+        return indexing.index_collection(collection_id)
+
+    @router.get(
+        "/api/v1/collections/{collection_id}/index-state",
+        response_model=IndexStateResponse,
+    )
+    def index_state(collection_id: UUID) -> IndexStateResponse:
+        return indexing.state(collection_id)
+
+    @router.get("/api/v1/indexing-jobs/{job_id}", response_model=IndexingJobResponse)
+    def indexing_job(job_id: UUID) -> IndexingJobResponse:
+        return indexing.repository.get_job(job_id)
+
+    @router.post("/api/v1/retrieval-lab", response_model=VectorSearchResponse)
+    def retrieval_lab(payload: VectorSearchRequest) -> VectorSearchResponse:
+        return indexing.search(payload)
+
+    @router.post(
+        "/api/v1/collections/{collection_id}/images",
+        response_model=ImageAssetResponse,
+        status_code=201,
+    )
+    async def upload_image(
+        collection_id: UUID,
+        file: Annotated[UploadFile, File()],
+    ) -> ImageAssetResponse:
+        content = await file.read(ingestion.settings.max_upload_bytes + 1)
+        return multimodal.ingest(
+            collection_id=collection_id,
+            filename=file.filename or "",
+            content_type=file.content_type,
+            content=content,
+        )
+
+    @router.post(
+        "/api/v1/collections/{collection_id}/images/search/text",
+        response_model=ImageSearchResponse,
+    )
+    def text_to_image_search(
+        collection_id: UUID,
+        query: Annotated[str, Form(min_length=1)],
+        top_k: Annotated[int, Form(ge=1, le=50)] = 5,
+    ) -> ImageSearchResponse:
+        return multimodal.search_text(collection_id, query, top_k)
+
+    @router.post(
+        "/api/v1/collections/{collection_id}/images/search/image",
+        response_model=ImageSearchResponse,
+    )
+    async def image_to_image_search(
+        collection_id: UUID,
+        file: Annotated[UploadFile, File()],
+        top_k: Annotated[int, Form(ge=1, le=50)] = 5,
+    ) -> ImageSearchResponse:
+        content = await file.read(ingestion.settings.max_upload_bytes + 1)
+        return multimodal.search_image(
+            collection_id,
+            file.filename or "",
+            file.content_type,
+            content,
+            top_k,
+        )
+
+    @router.get("/api/v1/images/{image_id}/content", response_class=FileResponse)
+    def image_content(image_id: UUID) -> FileResponse:
+        path = multimodal.get_content_path(image_id)
+        return FileResponse(path, filename=path.name)
 
     @router.post(
         "/api/v1/collections/{collection_id}/structured-tables",
@@ -250,6 +349,8 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code = 413 if exc.code in {"file_too_large", "batch_too_large"} else 422
         elif isinstance(exc, RetrievalError):
             status_code = 404 if exc.code.endswith("not_found") else 422
+        elif isinstance(exc, IndexingError):
+            status_code = 413 if exc.code in {"file_too_large", "image_too_large"} else 422
         return JSONResponse(status_code=status_code, content=payload.model_dump(mode="json"))
 
     @app.exception_handler(RequestValidationError)
@@ -275,3 +376,13 @@ def citation_url(source_id: str) -> str:
 
 def _sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _process_and_index(
+    ingestion: IngestionService,
+    indexing: IndexingService,
+    job_id: UUID,
+) -> None:
+    job = ingestion.process(job_id)
+    if job.status.value == "completed" and job.version_id is not None:
+        indexing.index_version(job.version_id)

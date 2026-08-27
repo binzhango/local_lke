@@ -9,12 +9,12 @@ inspectable decision system. It is based on all five Chapter 4 source lessons:
 4. `14_query_rewriting.md` — rewriting, decomposition, HyDE, step-back, and routing;
 5. `15_advanced_retrieval_techniques.md` — reranking, compression, and corrective RAG.
 
-The repository intentionally skips the Chapter 3 milestone. Consequently,
-Chapter 4 does **not** claim persistent pgvector/HNSW indexing, multimodal
-retrieval, or Chapter 3’s embedding-profile lifecycle. Dense retrieval embeds
-the active Chapter 2 chunks on demand. PostgreSQL full-text search and the
-structured path are persistent. This is a deliberate bridge, not a hidden
-partial implementation of Chapter 3.
+Historical sequencing note: the Chapter 4 milestone originally landed before
+Chapter 3 and therefore made no claim of persistent pgvector/HNSW, multimodal
+retrieval, or embedding-profile lifecycle support. Its dense path embedded
+active Chapter 2 chunks on demand. Chapter 3 now supplies those missing
+capabilities, and Chapter 4 prefers the compatible persistent index while
+retaining the original bridge for collections that have not yet been indexed.
 
 ## 1. Why one retrieval method is not enough
 
@@ -135,11 +135,11 @@ word overlap. Costs and limits include:
 - domain mismatch between training data and the local corpus;
 - changing embedding models invalidates comparisons with old vectors.
 
-Because Chapter 3 was deliberately skipped, active chunks are embedded on
-demand and cosine-scored in the application. This is correct for a small
-learning corpus and makes the dense boundary testable, but it is O(number of
-active chunks) per uncached query. A production-scale system would use the
-skipped Chapter 3 profile/version contract and ANN index.
+Current collection retrieval first queries the compatible active Chapter 3
+profile through pgvector/HNSW. If a collection has no ready index, active chunks
+are embedded on demand and cosine-scored in the application. That compatibility
+path is correct for a small learning corpus, but it is O(number of active chunks)
+per uncached query. Build the persistent index before scaling the corpus.
 
 ## 4. Hybrid retrieval and fusion
 
@@ -576,7 +576,7 @@ deterministic sufficiency score combines:
 - normalized evidence strength.
 
 It additionally requires some lexical term support, which is conservative and
-reduces accidental hash/semantic matches in this Chapter 3-free bridge. When the
+reduces accidental hash/semantic matches in the compatibility bridge. When the
 initial evidence is insufficient, exactly one alternate retrieval is allowed:
 dense switches to hybrid, or hybrid switches to dense with a step-back probe.
 The higher-scoring result is retained. If it still fails, the system abstains

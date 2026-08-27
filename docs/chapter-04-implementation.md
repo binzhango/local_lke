@@ -2,14 +2,16 @@
 
 ## Outcome
 
-Chapter 4 adds advanced retrieval and safe structured queries directly on top of
-the Chapter 2 persistence milestone. Chapter 3 was intentionally skipped. No
-pgvector schema, HNSW index, multimodal path, embedding profile, or Chapter 3 tag
-is part of this commit.
+Chapter 4 added advanced retrieval and safe structured queries directly on top
+of the Chapter 2 persistence milestone. Historical sequencing matters: the
+Chapter 4 commit landed before Chapter 3, so its original dense implementation
+used an explicit on-demand bridge. Chapter 3 has since filled that seam with
+persistent pgvector/HNSW and embedding-profile lifecycle support while retaining
+the bridge as a compatibility fallback.
 
 Persisted Chapter 2 chunks are now queryable through:
 
-- on-demand local dense embeddings;
+- persistent-first local dense embeddings with a bounded on-demand fallback;
 - PostgreSQL English full-text search with a generated `tsvector` and GIN index;
 - identity-safe reciprocal-rank fusion;
 - an optional local cross-encoder;
@@ -58,7 +60,8 @@ JSON crosses the same Pydantic boundary and never becomes SQL.
 
 PostgreSQL uses the generated indexed `chunks.search_vector`. SQLite uses a
 deterministic BM25 fallback so unit/integration tests need no server. Dense
-retrieval uses the configured embedding provider and cosine similarity. Both
+retrieval prefers the compatible active Chapter 3 profile and HNSW index; an
+unindexed collection can still use bounded on-demand cosine similarity. Both
 channels fetch `LKE_RETRIEVAL_CANDIDATE_LIMIT`; RRF uses
 `LKE_RETRIEVAL_RRF_K`.
 
@@ -133,7 +136,8 @@ Run the full gate with `make check`.
 
 ## Residual limits
 
-- Dense retrieval is intentionally linear/on-demand because Chapter 3 is absent.
+- Unindexed collections still use linear/on-demand dense retrieval; build a
+  Chapter 3 index before scaling the corpus.
 - English PostgreSQL stemming is appropriate for the current English learning
   corpus; multilingual FTS needs language-aware configuration.
 - Type inference is conservative and does not infer currency, timezone, or

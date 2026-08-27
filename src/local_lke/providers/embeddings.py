@@ -11,6 +11,12 @@ from local_lke.errors import ProviderUnavailableError
 
 
 class EmbeddingProvider(Protocol):
+    model_id: str
+    revision: str
+    normalized: bool
+    document_prefix: str
+    query_prefix: str
+
     def embed_documents(self, texts: list[str]) -> list[list[float]]: ...
 
     def embed_query(self, text: str) -> list[float]: ...
@@ -21,8 +27,21 @@ class EmbeddingProvider(Protocol):
 class LocalHuggingFaceEmbeddings:
     """Lazy local sentence-transformers adapter."""
 
-    def __init__(self, model_name: str) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        revision: str = "main",
+        normalized: bool = True,
+        document_prefix: str = "",
+        query_prefix: str = "",
+    ) -> None:
         self.model_name = model_name
+        self.model_id = model_name
+        self.revision = revision
+        self.normalized = normalized
+        self.document_prefix = document_prefix
+        self.query_prefix = query_prefix
         self._client: HuggingFaceEmbeddings | None = None
 
     def _get_client(self) -> HuggingFaceEmbeddings:
@@ -30,7 +49,8 @@ class LocalHuggingFaceEmbeddings:
             try:
                 self._client = HuggingFaceEmbeddings(
                     model_name=self.model_name,
-                    encode_kwargs={"normalize_embeddings": True},
+                    model_kwargs={"revision": self.revision},
+                    encode_kwargs={"normalize_embeddings": self.normalized},
                 )
             except Exception as exc:
                 raise ProviderUnavailableError(
@@ -42,7 +62,9 @@ class LocalHuggingFaceEmbeddings:
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         try:
-            return self._get_client().embed_documents(texts)
+            return self._get_client().embed_documents(
+                [f"{self.document_prefix}{text}" for text in texts]
+            )
         except ProviderUnavailableError:
             raise
         except Exception as exc:
@@ -53,7 +75,7 @@ class LocalHuggingFaceEmbeddings:
 
     def embed_query(self, text: str) -> list[float]:
         try:
-            return self._get_client().embed_query(text)
+            return self._get_client().embed_query(f"{self.query_prefix}{text}")
         except ProviderUnavailableError:
             raise
         except Exception as exc:
@@ -73,6 +95,12 @@ class LocalHuggingFaceEmbeddings:
 
 class DeterministicFakeEmbeddings:
     """Small normalized hashing embedder with no model or network dependencies."""
+
+    model_id = "deterministic-hashing-v1"
+    revision = "1"
+    normalized = True
+    document_prefix = ""
+    query_prefix = ""
 
     def __init__(self, dimensions: int = 64) -> None:
         if dimensions < 8:

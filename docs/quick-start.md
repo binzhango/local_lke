@@ -1,4 +1,4 @@
-# Chapters 1, 2, and 4 Quick Start
+# Chapters 1-4 Quick Start
 
 ## Automated foundation setup
 
@@ -16,7 +16,7 @@ does not contact the internet or require a model server.
 Chapter 2 also requires the local PostgreSQL 18 service:
 
 ```bash
-brew install postgresql@18
+brew install postgresql@18 pgvector
 brew services start postgresql@18
 make init-postgres
 ```
@@ -52,9 +52,10 @@ make serve
 ```
 
 `make doctor` checks the models endpoint, sends a minimal completion, and
-initializes the local embedding model. It also verifies the explicit PostgreSQL
-18 binary and database connection. The first embedding initialization may
-download `sentence-transformers/all-MiniLM-L6-v2`; later runs use the local cache.
+initializes the local embedding model. It also verifies PostgreSQL 18, pgvector,
+the fixed vector dimensions, and a vector round trip. The first embedding
+initialization may download `BAAI/bge-small-en-v1.5`; later runs use the local
+cache. The optional CLIP model loads only when image indexing is used.
 
 ## Serving an Unsloth GGUF
 
@@ -106,20 +107,31 @@ uv run lke openapi
 The generated `.artifacts/openapi.json` is a local build artifact and is ignored
 by Git.
 
-## Chapter 4 first query
+## Chapter 3 index and first query
 
 Create a collection and ingest a text/Markdown/PDF document in the Documents
-tab. Open Retrieval Lab, refresh collections, select that collection, and choose
-`hybrid`. The stage comparison exposes dense, lexical, fused, optional reranked,
-and final context decisions.
+tab. Successful ingestion automatically schedules its persistent text index.
+Open Retrieval Lab, refresh collections, select that collection, inspect index
+state, and compare sentence-window, parent, and multi-granularity expansion.
+Each result exposes the triggering child, expanded context, locator, duplicate
+decision, and token total.
+
+For image retrieval, open Multimodal Search and upload a PNG, JPEG, or WebP.
+Search with either text or another image. Returned assets include provenance;
+the application does not claim the text-only answer model inspected them.
+
+Then choose Chapter 4 `hybrid` collection retrieval. Its stage comparison
+exposes persistent dense, lexical, fused, optional reranked, and final context
+decisions.
 
 For tabular data, open Structured Data and upload UTF-8 CSV. Copy the returned
 table ID into the query form. You may provide a Pydantic-shaped plan or let the
 configured local model propose JSON. The application always validates and
 compiles the plan; it never executes model SQL.
 
-See [Chapter 4 retrieval operations](chapter-04-retrieval.md) for request
-examples and tuning controls.
+See [Chapter 3 indexing operations](chapter-03-indexing.md) and
+[Chapter 4 retrieval operations](chapter-04-retrieval.md) for request examples
+and tuning controls.
 
 ## Troubleshooting
 
@@ -145,3 +157,10 @@ already-cached sentence-transformers model.
 Run `/opt/homebrew/opt/postgresql@18/bin/pg_isready`, then start the service with
 `brew services start postgresql@18`. Run `make init-postgres` again to create the
 database and apply migrations; the command is idempotent.
+
+### pgvector is unavailable or has the wrong dimension
+
+Run the extension query and safe Homebrew reinstall procedure in the
+[Chapter 3 indexing guide](chapter-03-indexing.md). Do not pad, truncate, or cast
+vectors to hide a dimension mismatch; use the matching model or an explicit
+schema migration.

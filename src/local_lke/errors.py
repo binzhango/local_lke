@@ -33,6 +33,18 @@ class IngestionError(LKEError):
             self.code = code
 
 
+class IndexingError(LKEError):
+    """An embedding, vector-index, or multimodal operation failed safely."""
+
+    code = "indexing_error"
+    component = "indexing"
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        if code is not None:
+            self.code = code
+
+
 class NotFoundError(LKEError):
     code = "not_found"
 
