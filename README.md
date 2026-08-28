@@ -1,6 +1,6 @@
 # Local LKE
 
-Local LKE is an English, executable companion for learning Retrieval-Augmented
+Local LKE is an executable companion for learning Retrieval-Augmented
 Generation (RAG). Chapters 1-7 now provide a cited baseline, versioned ingestion,
 persistent pgvector and multimodal indexing, and hybrid, metadata-aware,
 corrective retrieval, validated generation, regression evaluation, and an opt-in
