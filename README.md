@@ -80,7 +80,7 @@ make serve      # FastAPI and Gradio in one process
 make demo-chapter CHAPTER=4 # optional focus on the same cumulative app
 make doctor     # models endpoint, chat completion, and embedding checks
 make test       # deterministic tests; network sockets are disabled
-make test-live  # optional provider smoke test (see docs/quick-start.md)
+make test-live  # optional provider smoke test (see docs/getting-started/quick-start.md)
 make lint       # Ruff
 make typecheck  # strict mypy
 make check      # lint, typecheck, and deterministic tests
@@ -98,7 +98,7 @@ Open `/docs` and expand the Chapter 1–7 tags; no chapter checkout, dependency
 installation, or service restart is needed. `make demo-secure` is the separate
 Chapter 7 authorization demonstration because secure mode intentionally disables
 direct-service Gradio callbacks. The older `make demo CHAPTER=4` form remains an
-optional focused guide. See [Chapter demo launcher](docs/chapter-demos.md).
+optional focused guide. See [Chapter demo launcher](docs/getting-started/chapter-demos.md).
 
 ## Chapters 2-7 capabilities and boundaries
 
@@ -138,28 +138,9 @@ optional focused guide. See [Chapter demo launcher](docs/chapter-demos.md).
 - Metadata-only allow/deny audit evidence and administrator-only evaluation controls
 - Secure API mode intentionally disables direct-service Gradio callbacks
 
-See the [Chapter 1 learning notes](docs/chapter-01-knowledge-guide.md),
-[detailed implementation report](docs/chapter-01-implementation.md),
-[quick start](docs/quick-start.md), [four-stage code map](docs/architecture.md),
-and [initial RAG issue baseline](docs/blog-coverage.md).
-For this milestone, see the [Chapter 2 learning notes](docs/chapter-02-knowledge-guide.md),
-[implementation report](docs/chapter-02-implementation.md), and
-[ingestion operations guide](docs/chapter-02-ingestion.md).
-Chapter 3 adds the [indexing and embeddings learning guide](docs/chapter-03-knowledge-guide.md),
-[implementation report](docs/chapter-03-implementation.md), and
-[indexing operations guide](docs/chapter-03-indexing.md).
-Chapter 4 adds the [advanced retrieval learning guide](docs/chapter-04-knowledge-guide.md),
-[implementation report](docs/chapter-04-implementation.md), and
-[retrieval operations guide](docs/chapter-04-retrieval.md).
-Chapter 5 adds the [validated generation learning guide](docs/chapter-05-knowledge-guide.md),
-[implementation report](docs/chapter-05-implementation.md), and
-[generation operations guide](docs/chapter-05-generation.md).
-Chapter 6 adds the [evaluation learning guide](docs/chapter-06-knowledge-guide.md),
-[implementation report](docs/chapter-06-implementation.md), and
-[evaluation operations guide](docs/chapter-06-evaluation.md).
-Chapter 7 adds the [security and governance learning guide](docs/chapter-07-knowledge-guide.md),
-[implementation report](docs/chapter-07-implementation.md), and
-[security operations guide](docs/chapter-07-security.md).
+Use the [documentation index](docs/README.md) to browse setup and demo guides,
+chapter learning material, operations runbooks, implementation reports, and
+architecture and reliability references.
 
 ## API
 

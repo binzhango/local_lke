@@ -228,7 +228,3 @@ data/postgres/
 data/traces/
 models/
 .DS_Store
-
-# Local planning material (intentionally not part of the public repository)
-docs/implementation-plan.md
-docs/chapters/

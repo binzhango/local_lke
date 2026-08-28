@@ -192,7 +192,7 @@ and builds HNSW indexes. Health and `lke doctor` report four separate properties
 
 This distinguishes “the package is installed on disk” from “this database has
 the extension and compatible schema.” See
-[chapter-03-indexing.md](chapter-03-indexing.md) for recovery commands.
+[Chapter 3 indexing operations](../operations/chapter-03-indexing.md) for recovery commands.
 
 ## Mapping the source guides to pgvector
 
@@ -244,4 +244,4 @@ proof of retrieval quality.
   intentionally not an in-place cast.
 
 The deeper theory, model history, Milvus/FAISS examples, and optimization
-algorithms are in [chapter-03-knowledge-guide.md](chapter-03-knowledge-guide.md).
+algorithms are in the [Chapter 3 learning guide](../learning/chapter-03-knowledge-guide.md).

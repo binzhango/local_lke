@@ -1,8 +1,8 @@
 # Chapter 2 Implementation Report: Safe, Versioned Ingestion
 
 This report records the code and acceptance evidence for the Chapter 2
-milestone. The companion [learning notes](chapter-02-knowledge-guide.md) explain
-the concepts; the [operations guide](chapter-02-ingestion.md) covers setup and
+milestone. The companion [learning notes](../learning/chapter-02-knowledge-guide.md) explain
+the concepts; the [operations guide](../operations/chapter-02-ingestion.md) covers setup and
 parser choices.
 
 ## Result

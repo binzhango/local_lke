@@ -270,6 +270,6 @@ suite is opt-in because it exercises locally configured real providers.
 
 For the theory behind normalization, model selection, CLIP, vector databases,
 FAISS/Milvus comparisons, HNSW, and context expansion, read
-[chapter-03-knowledge-guide.md](chapter-03-knowledge-guide.md). For the exact
+[Chapter 3 learning guide](../learning/chapter-03-knowledge-guide.md). For the exact
 implementation and test boundaries, read
-[chapter-03-implementation.md](chapter-03-implementation.md).
+[Chapter 3 implementation report](../implementation/chapter-03-implementation.md).

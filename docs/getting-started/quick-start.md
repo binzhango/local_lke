@@ -22,7 +22,7 @@ make init-postgres
 ```
 
 The last command creates `local_lke` only when absent and applies the Alembic
-migrations. See [the ingestion guide](chapter-02-ingestion.md) for alternate
+migrations. See [the ingestion guide](../operations/chapter-02-ingestion.md) for alternate
 paths, parser dependencies, and database troubleshooting.
 
 If `uv` is not installed, follow the official instructions at
@@ -129,8 +129,8 @@ table ID into the query form. You may provide a Pydantic-shaped plan or let the
 configured local model propose JSON. The application always validates and
 compiles the plan; it never executes model SQL.
 
-See [Chapter 3 indexing operations](chapter-03-indexing.md) and
-[Chapter 4 retrieval operations](chapter-04-retrieval.md) for request examples
+See [Chapter 3 indexing operations](../operations/chapter-03-indexing.md) and
+[Chapter 4 retrieval operations](../operations/chapter-04-retrieval.md) for request examples
 and tuning controls.
 
 ## Chapter 5 validated generation
@@ -147,7 +147,7 @@ LKE_GENERATION_NATIVE_STRUCTURED_OUTPUT=false
 LKE_GENERATION_MAX_REPAIR_ATTEMPTS=1
 ```
 
-See [Chapter 5 generation operations](chapter-05-generation.md) for API examples,
+See [Chapter 5 generation operations](../operations/chapter-05-generation.md) for API examples,
 status handling, structured-output troubleshooting, and the streaming contract.
 
 ## Chapter 6 evaluation gate
@@ -160,7 +160,7 @@ Add a baseline run ID only when evaluating the exact same immutable dataset
 version. Quality regression tolerance and latency tolerance are separate;
 latency comparison is opt-in because normal execution timing varies.
 
-See [Chapter 6 evaluation operations](chapter-06-evaluation.md) for dataset JSON,
+See [Chapter 6 evaluation operations](../operations/chapter-06-evaluation.md) for dataset JSON,
 API commands, fault scenarios, metric definitions, and baseline comparison.
 
 ## Chapter 7 governed API mode
@@ -177,7 +177,7 @@ principals allowed to run cross-collection evaluations or read audit events.
 Secure mode does not mount `/app`, because its callbacks call services directly
 and cannot safely carry browser bearer credentials.
 
-See [Chapter 7 security operations](chapter-07-security.md) for configuration,
+See [Chapter 7 security operations](../operations/chapter-07-security.md) for configuration,
 role behavior, API examples, token rotation, and audit boundaries.
 
 ## Troubleshooting
@@ -208,6 +208,6 @@ database and apply migrations; the command is idempotent.
 ### pgvector is unavailable or has the wrong dimension
 
 Run the extension query and safe Homebrew reinstall procedure in the
-[Chapter 3 indexing guide](chapter-03-indexing.md). Do not pad, truncate, or cast
+[Chapter 3 indexing guide](../operations/chapter-03-indexing.md). Do not pad, truncate, or cast
 vectors to hide a dimension mismatch; use the matching model or an explicit
 schema migration.

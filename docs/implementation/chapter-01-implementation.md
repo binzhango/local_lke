@@ -2,7 +2,7 @@
 
 This document explains what was implemented and verified. For concepts, mental
 models, failure analysis, exercises, and terminology, read the
-[Chapter 1 learning notes](chapter-01-knowledge-guide.md).
+[Chapter 1 learning notes](../learning/chapter-01-knowledge-guide.md).
 
 ## 1. Chapter result
 
@@ -110,7 +110,7 @@ After initialization, the developer sets the exact local model identifier in
 
 ## 6. Typed configuration
 
-[`settings.py`](../src/local_lke/settings.py) defines one Pydantic `Settings`
+[`settings.py`](../../src/local_lke/settings.py) defines one Pydantic `Settings`
 model. Every environment variable uses the `LKE_` prefix.
 
 | Variable | Default | Purpose |
@@ -151,7 +151,7 @@ flowchart LR
     X --> O
 ```
 
-Provider creation is centralized in [`factory.py`](../src/local_lke/factory.py).
+Provider creation is centralized in [`factory.py`](../../src/local_lke/factory.py).
 Production uses the real local providers, while tests inject deterministic fake
 providers through the same constructor.
 
@@ -173,7 +173,7 @@ The expected fact is **15 minutes**, supported by
 
 ### Loading and normalization
 
-[`documents.py`](../src/local_lke/rag/documents.py) reads `.md` and `.txt` files
+[`documents.py`](../../src/local_lke/rag/documents.py) reads `.md` and `.txt` files
 in sorted order, normalizes line endings and trailing whitespace, and creates
 immutable `SourceDocument` objects.
 
@@ -190,7 +190,7 @@ absolute filesystem path.
 
 ### Splitting
 
-[`splitting.py`](../src/local_lke/rag/splitting.py) uses LangChain's
+[`splitting.py`](../../src/local_lke/rag/splitting.py) uses LangChain's
 `RecursiveCharacterTextSplitter` with these Chapter 1 defaults:
 
 - Chunk size: 600 characters
@@ -206,7 +206,7 @@ fixture:atlas-support:chunk:0000
 
 ## 9. Stage 2: indexing
 
-[`embeddings.py`](../src/local_lke/providers/embeddings.py) implements a lazy
+[`embeddings.py`](../../src/local_lke/providers/embeddings.py) implements a lazy
 `LocalHuggingFaceEmbeddings` adapter. The sentence-transformers model is not
 initialized until embeddings are actually required. Vectors are normalized.
 
@@ -237,7 +237,7 @@ tab so this baseline can be inspected before later retrieval improvements.
 
 ## 11. Stage 4: grounded generation and citations
 
-[`prompting.py`](../src/local_lke/rag/prompting.py) creates a grounded prompt with
+[`prompting.py`](../../src/local_lke/rag/prompting.py) creates a grounded prompt with
 explicit evidence boundaries:
 
 ```text
@@ -267,7 +267,7 @@ marked `degraded`.
 
 ## 12. Provider boundary and health checks
 
-[`chat.py`](../src/local_lke/providers/chat.py) wraps LangChain `ChatOpenAI` with
+[`chat.py`](../../src/local_lke/providers/chat.py) wraps LangChain `ChatOpenAI` with
 a configurable base URL. This allows the same application code to use LM Studio,
 `llama-server`, or another local OpenAI-compatible service.
 
@@ -288,7 +288,7 @@ returns a non-empty vector.
 
 ## 13. Stable domain and API models
 
-[`models.py`](../src/local_lke/models.py) owns the stable Pydantic schemas.
+[`models.py`](../../src/local_lke/models.py) owns the stable Pydantic schemas.
 
 | Model | Role |
 |---|---|
@@ -308,7 +308,7 @@ at least one citation.
 
 ## 14. FastAPI surface
 
-[`api.py`](../src/local_lke/web/api.py) exposes four routes.
+[`api.py`](../../src/local_lke/web/api.py) exposes four routes.
 
 ### `GET /healthz`
 
@@ -391,8 +391,8 @@ contract at `/openapi.json`. `uv run lke openapi` exports a local copy to
 
 ## 15. Gradio workbench
 
-[`workbench.py`](../src/local_lke/web/workbench.py) builds a Gradio `Blocks`
-application and [`app.py`](../src/local_lke/web/app.py) mounts it under `/app` on
+[`workbench.py`](../../src/local_lke/web/workbench.py) builds a Gradio `Blocks`
+application and [`app.py`](../../src/local_lke/web/app.py) mounts it under `/app` on
 the same FastAPI process.
 
 The workbench has four tabs:
@@ -499,7 +499,8 @@ What Chapter 1 contributes is the evidence surface needed to improve them:
 - Typed response and error contracts
 - A network-free regression suite
 
-See [`blog-coverage.md`](blog-coverage.md) for the issue-by-issue baseline.
+See the [RAG issue coverage](../reference/rag-issue-coverage.md) for the
+issue-by-issue status.
 
 ## 21. How to reproduce the completed milestone
 
