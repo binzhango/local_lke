@@ -194,9 +194,9 @@ This distinguishes “the package is installed on disk” from “this database 
 the extension and compatible schema.” See
 [Chapter 3 indexing operations](../operations/chapter-03-indexing.md) for recovery commands.
 
-## Mapping the source guides to pgvector
+## Mapping vector-store concepts to pgvector
 
-| Guide concept | Local LKE implementation |
+| Concept | Local LKE implementation |
 |---|---|
 | Milvus Collection | PostgreSQL table plus collection foreign key |
 | Schema | Alembic-managed SQLAlchemy model and fixed vector typmod |

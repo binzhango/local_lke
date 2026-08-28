@@ -50,7 +50,7 @@ Free-form prose is useful for people but inconvenient and unsafe for programs.
 Formatted generation connects the model's language understanding to deterministic
 application logic.
 
-The source chapter gives three representative cases.
+Three representative cases illustrate the need.
 
 ### RAG product recommendations
 

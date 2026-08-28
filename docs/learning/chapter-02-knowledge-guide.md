@@ -4,9 +4,9 @@ Chapter 1 proved the basic RAG loop with controlled files. Chapter 2 studies the
 first production-quality stage: turning long, varied documents into safe,
 traceable, retrieval-ready chunks.
 
-These notes cover the complete conceptual content of the source chapter and
-then map each technique to this repository. A technique being explained here
-does not imply that it is already implemented.
+These notes survey the main document-loading and chunking techniques, then map
+each technique to this repository. A technique being explained here does not
+imply that it is already implemented.
 
 ## 1. Where chunking fits in RAG
 
@@ -51,10 +51,10 @@ This limit must be checked for the actual embedding model and tokenizer. A
 character count is only an approximation because token-to-character ratios vary
 by language, punctuation, code, and model vocabulary.
 
-The source chapter uses `bge-base-zh-v1.5` and a 512-token window as a concrete
-illustration: a chunk beyond that example limit would be truncated and its
-embedding could not represent the omitted text. Treat the number as
-model-specific, not as a universal embedding limit.
+A model with a 512-token input window provides a concrete illustration: a chunk
+beyond that limit may be truncated and its embedding cannot represent the
+omitted text. Treat the number as model-specific, not as a universal embedding
+limit.
 
 ### 2.2 The generation model has a context limit
 
@@ -285,8 +285,8 @@ is read and retrieved than arbitrary character windows.
 ## 6. Embedding-based semantic chunking
 
 Semantic chunking tries to split where the topic changes rather than at a fixed
-separator or character count. LangChain’s experimental `SemanticChunker` is the
-canonical example in the source material.
+separator or character count. LangChain’s experimental `SemanticChunker` is a
+representative implementation.
 
 ### 6.1 Canonical workflow
 
@@ -608,9 +608,9 @@ When ingestion or retrieval looks wrong, inspect in this order:
 This order separates ingestion defects from indexing, retrieval, and generation
 defects instead of treating every bad answer as a model problem.
 
-## 16. Source-chapter coverage index
+## 16. Concept coverage index
 
-| Source topic | Covered here |
+| Topic | Covered here |
 |---|---|
 | Definition of text chunking | Section 1 |
 | Embedding and LLM context limits | Section 2 |
@@ -629,9 +629,7 @@ defects instead of treating every bad answer as a model problem.
 
 ## References
 
-- Source chapter: `all-in-rag-main/docs/chapter2/05_text_chunking.md`
 - Nelson F. Liu et al., [Lost in the Middle: How Language Models Use Long
   Contexts](https://arxiv.org/abs/2307.03172)
-- The source chapter also compares LangChain, Unstructured, LlamaIndex, and
-  ChunkViz; their APIs and defaults should be checked against the installed
-  versions before copying example code.
+- LangChain, Unstructured, LlamaIndex, and ChunkViz APIs and defaults should be
+  checked against the installed versions before copying example code.

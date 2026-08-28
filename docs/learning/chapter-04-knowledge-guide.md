@@ -619,9 +619,9 @@ of better retrieval.
 | strategy/query/structured API | `web/api.py` |
 | comparison lab and structured panel | `web/workbench.py` |
 
-## 16. Source-coverage checklist
+## 16. Concept coverage checklist
 
-The guide explicitly preserves the source material’s important concepts:
+This guide covers the following important concepts:
 
 - sparse representation, COO/dictionary examples, TF-IDF/BM25 parameters;
 - dense geometry, semantic matching, OOV/subword nuance;
@@ -639,7 +639,7 @@ The guide explicitly preserves the source material’s important concepts:
   compressor boundary, and LlamaIndex sentence optimization;
 - C-RAG retrieve/assess/act branches and the local no-web adaptation.
 
-That source coverage is only the conceptual baseline. The repository adds the
+This conceptual coverage is only the baseline. The repository adds the
 production controls the examples need: active-version scope, immutable
 provenance, parameterized plans, hard budgets, bounded retries, complete traces,
 and deterministic tests.

@@ -5,7 +5,7 @@ become searchable vectors, how vector indexes trade exactness for speed, how tex
 and images can share a retrieval space, and how small retrieval units can expand
 into useful generation context.
 
-These notes cover the complete conceptual content of the five source sections:
+These notes cover five areas:
 
 1. Vector embeddings
 2. Multimodal embeddings
@@ -13,10 +13,10 @@ These notes cover the complete conceptual content of the five source sections:
 4. Milvus concepts and multimodal practice
 5. Sentence-window, structured, and recursive index optimization
 
-The source guide uses BGE, Visualized-BGE, FAISS, Milvus, LangChain, and
-LlamaIndex examples. This repository implements the same principles with local
-BGE text embeddings, an optional local CLIP-compatible model, PostgreSQL 18,
-and pgvector. A concept being explained here does not imply that every source
+BGE, Visualized-BGE, FAISS, Milvus, LangChain, and LlamaIndex provide useful
+comparison points. This repository implements the relevant principles with
+local BGE text embeddings, an optional local CLIP-compatible model, PostgreSQL
+18, and pgvector. A concept being explained here does not imply that every
 framework or database is installed.
 
 ## 1. The Chapter 3 pipeline
@@ -127,7 +127,7 @@ profile, even if the model name and dimension remain unchanged.
 
 ## 4. Embeddings in the RAG loop
 
-The source chapter describes four steps.
+The embedding pipeline has four steps.
 
 1. **Offline index construction:** split documents, embed every chunk, and store
    vectors beside identifiers and metadata.
@@ -999,7 +999,7 @@ retrieval regression.
 | Dual encoder | Independent encoders projected into one space |
 | Zero-shot | Applying learned alignment without task-specific fine-tuning |
 
-## 37. Further reading cited by Chapter 3
+## 37. Further reading
 
 - Lewis et al. (2020), *Retrieval-Augmented Generation for
   Knowledge-Intensive NLP Tasks*

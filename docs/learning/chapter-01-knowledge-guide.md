@@ -578,7 +578,7 @@ Examples:
 - Replace last month's product catalog.
 - Switch between customer-specific knowledge collections.
 
-The guide describes this as **index hot-swapping**: changing the model's
+This is **index hot-swapping**: changing the model's
 available external knowledge without retraining the model. A production system
 still needs versioning and a controlled cutover so active requests do not see a
 partially rebuilt index.
@@ -689,7 +689,7 @@ latency, deployment model, backup, and operational experience.
 
 ### Evaluation tools
 
-The guide mentions **RAGAS** and **TruLens** as tools that can help automate RAG
+**RAGAS** and **TruLens** are tools that can help automate RAG
 evaluation. A tool does not replace a representative dataset or careful metric
 design; it provides reusable evaluators and experiment infrastructure.
 
@@ -698,7 +698,6 @@ design; it provides reusable evaluators and experiment infrastructure.
 - **FastGPT** and **Dify** package common knowledge-base workflows behind visual
   interfaces.
 - **LangChain4j Easy RAG** provides a Java-oriented starting point.
-- **TinyRAG** is an example of a small open-source template.
 
 These tools are useful for fast validation. A developer still needs to
 understand chunking, retrieval, grounding, security, and evaluation to diagnose
@@ -811,124 +810,79 @@ external managed knowledge work together.
 
 ## 26. Environment and reproducibility notes
 
-Chapter 1 spends significant space on setup because a RAG application combines
-many Python and model dependencies. A learner cannot study the pipeline if the
-environment is inconsistent.
+A RAG application combines many Python and model dependencies. A learner cannot
+study the pipeline if the environment is inconsistent.
 
 ### 26.1 Model access
 
-The guide offers two cloud API paths:
-
-- AIHubmix as an aggregator with chat, embedding, and reranking model choices
-- The DeepSeek platform as a direct LLM API provider
-
-Both require an API key. A key may be displayed only once, so it must be copied
-and stored safely when created.
+Local LKE defaults to an OpenAI-compatible model server bound to loopback. A
+remote provider can use the same adapter, but it requires an API key and sends
+retrieved context outside the local machine.
 
 General secret rules:
 
 - Store keys in environment variables or an ignored `.env` file.
 - Never place a real key in source code, screenshots, tests, or Git history.
-- Use a provider-specific variable name such as `DEEPSEEK_API_KEY` or
-  `AIHUBMIX_API_KEY`.
+- Use a provider-specific environment variable rather than a shared generic key.
 - Rotate a key immediately if it is exposed.
 - Remember that retrieved context sent to a cloud API leaves the local machine.
 
 ### 26.2 Development environment options
 
-The guide describes three paths:
+The environment may be local or hosted, but the reproducibility goal is the
+same: a known Python version, isolated dependencies, safely supplied secrets,
+and a repeatable startup command. Local LKE's tested workflow is documented in
+the project quick start.
 
-- **GitHub Codespaces:** browser-based development when GitHub access is good;
-  usage quotas and automatic suspension should be managed.
-- **Cloud Studio:** browser-based CPU/GPU environment presented as an alternative
-  for users with limited GitHub connectivity.
-- **Local Windows environment:** Miniconda, explicit environment variables, and
-  PATH configuration.
+### 26.3 Alternative Conda workflow
 
-The environment changes, but the reproducibility goal is the same: a known
-Python version, isolated dependencies, safely supplied secrets, and a repeatable
-startup command.
-
-### 26.3 Conda workflow in the guide
-
-The original setup creates a Python 3.12.7 environment:
+A comparable isolated Python environment can be created with Conda:
 
 ```bash
-conda create --name all-in-rag python=3.12.7
-conda activate all-in-rag
-cd code
-pip install -r requirements.txt
+conda create --name local-lke python=3.12
+conda activate local-lke
+pip install -e .
 ```
 
-It also explains installing Git, cloning the repository, and using platform-
-appropriate package mirrors where necessary.
+### 26.4 Canonical uv workflow
 
-### 26.4 uv appendix
-
-The appendix presents `uv` as a unified alternative for Python environment
-management, motivated by Python dependency fragmentation.
-
-It creates a Python 3.12.7 virtual environment:
+Local LKE uses `uv` as the canonical Python environment and dependency manager.
+From the repository root, the locked environment can be reproduced with:
 
 ```bash
-uv venv rag --python 3.12.7
+uv sync --locked
+uv run --locked lke doctor --skip-providers --skip-database
 ```
 
-Activation differs by platform:
-
-```text
-Windows:       rag\Scripts\activate
-Linux/macOS:  source rag/bin/activate
-```
-
-The general lesson is more important than the exact tool: isolate dependencies,
-pin a compatible Python version, make installation repeatable, and document the
-commands that were actually tested.
-
-The appendix installs `uv` with PowerShell on Windows or the official shell
-installer on Linux and macOS. If `curl` is unavailable, it gives `wget` as a
-fallback. The installer may print a user-specific directory that must be added
-to `PATH`; that path should be copied from the local installer output rather
-than copied from somebody else's machine.
-
-### 26.5 Platform-specific details worth retaining
-
-The setup section is repetitive because it supports several environments. The
-important platform differences are:
-
-- **GitHub Codespaces:** fork the repository, create a codespace, update system
-  packages, install Miniconda, and manage the idle-suspension setting. The guide
-  notes that free usage is limited, so an unnecessarily long suspension delay
-  consumes quota.
-- **Cloud Studio:** import the Git repository, switch from the administrative
-  account to `ubuntu` when needed, install Miniconda as that user, and correct
-  ownership of the `code` and `models` directories before installing packages.
-- **Windows:** create the API key as a user environment variable, install
-  Miniconda into a path without Chinese characters or spaces, and manually add
-  the Miniconda root, `Scripts`, and `Library\bin` directories to `PATH`. The
-  guide also provides a regional Conda mirror for slow package downloads.
-- **Local clone:** install Git, verify it with `git --version`, clone the source,
-  create the Conda environment, activate it, enter `code`, and install
-  `requirements.txt`.
-
-These commands describe the guide's reproducible learning environment. They are
-not architectural requirements of RAG itself; another project can use a
-different environment manager while preserving the same isolation and secret-
-handling principles.
-
-## 27. Detailed notes on the LangChain walkthrough
-
-The tutorial's LangChain example loads a local Markdown document about
-reinforcement learning, retrieves relevant text, and asks a chat model to answer
-the question “What examples are given in the article?”
-
-The guide runs it after activating the environment and entering the Chapter 1
-code directory:
+The project initialization script performs these steps and creates `.env` only
+when it is missing:
 
 ```bash
-conda activate all-in-rag
-cd code/C1
-python 01_langchain_example.py
+./scripts/init_environment.sh
+```
+
+The general lesson is to isolate dependencies, pin a compatible Python version,
+make installation repeatable, and document the commands that were actually
+tested.
+
+### 26.5 Reproducibility checklist
+
+- Pin the supported Python and dependency versions.
+- Keep secrets in ignored environment files or a secret manager.
+- Bind local model servers to loopback unless remote access is intentional.
+- Record the exact chat and embedding model identifiers.
+- Run deterministic checks before enabling live-provider tests.
+- Keep generated models, indexes, uploads, and database files out of Git.
+
+## 27. Detailed notes on the LangChain pipeline
+
+Local LKE loads a bundled Markdown support document, retrieves relevant text,
+and asks a chat model to answer a question grounded in that evidence. Run the
+deterministic setup and cumulative demo with:
+
+```bash
+./scripts/init_environment.sh
+make demo
 ```
 
 ### 27.1 Initialization
@@ -938,15 +892,14 @@ The example loads environment variables and imports these component roles:
 - `TextLoader` for the Markdown source
 - `RecursiveCharacterTextSplitter` for chunking
 - `HuggingFaceEmbeddings` for dense vectors
-- `InMemoryVectorStore` for the tutorial index
+- `InMemoryVectorStore` for the baseline index
 - `ChatPromptTemplate` for prompt construction
 - `ChatOpenAI` for an OpenAI-compatible chat endpoint
 
-The first run downloads the `BAAI/bge-small-zh-v1.5` embedding model. A model
-download is environment preparation, not query-time reasoning. The guide also
-points to a `fix_nltk.py` helper if the example encounters an NLTK-related setup
-error. It also shows an optional Hugging Face mirror environment variable for
-environments that cannot download reliably from the default endpoint.
+The first live run may download the configured `BAAI/bge-small-en-v1.5`
+embedding model. A model download is environment preparation, not query-time
+reasoning. Deterministic tests use fake local providers and do not download a
+model.
 
 ### 27.2 Loading the source
 
@@ -956,8 +909,7 @@ index.
 
 ### 27.3 Recursive splitting defaults
 
-The example constructs `RecursiveCharacterTextSplitter()` without custom
-arguments. The guide records these defaults:
+LangChain's `RecursiveCharacterTextSplitter()` has defaults such as:
 
 - Separator order: paragraph (`\n\n`), line (`\n`), space, then character
 - `keep_separator=True`
@@ -968,22 +920,22 @@ The splitter tries larger semantic boundaries first and falls back to smaller
 ones until text fits the target size. Keeping separators helps preserve the
 original textual structure.
 
-These are tutorial defaults, not universal production settings. The exercise is
+These are library defaults, not universal production settings. The exercise is
 to change chunk size and overlap and observe the answer.
 
-### 27.4 Chinese embedding model
+### 27.4 Language-compatible embedding model
 
 The example configures:
 
 ```text
-model: BAAI/bge-small-zh-v1.5
+model: BAAI/bge-small-en-v1.5
 device: CPU
 normalize_embeddings: true
 ```
 
-The language choice matters: the source and query are Chinese, so the tutorial
-uses a Chinese embedding model. Normalization makes vector magnitudes
-consistent for the selected similarity behavior.
+The language choice matters: Local LKE's bundled sources and queries are
+English, so its default profile uses an English embedding model. Normalization
+makes vector magnitudes consistent for the selected similarity behavior.
 
 ### 27.5 In-memory index
 
@@ -996,14 +948,13 @@ not durable knowledge management.
 
 ### 27.6 Query and top-k retrieval
 
-The tutorial asks:
+The bundled acceptance question asks:
 
 ```text
-What examples are given in the article?
+How quickly does Atlas acknowledge a priority-one incident?
 ```
 
-It calls similarity search with `k=3`, so the three nearest chunks become the
-candidate context.
+Similarity search returns the configured top-k chunks as candidate context.
 
 ### 27.7 Context assembly
 
@@ -1030,13 +981,12 @@ grounding contract.
 
 ### 27.9 Chat model configuration
 
-The tutorial demonstrates an OpenAI-compatible chat client with:
+Local LKE uses an OpenAI-compatible chat client with:
 
-- Model: `glm-4.7-flash-free`
-- Temperature: `0.7`
-- Maximum output tokens: `2048`
-- API key loaded from an environment variable
-- AIHubmix-compatible base URL
+- model ID loaded from `LKE_CHAT_MODEL`;
+- base URL loaded from `LKE_CHAT_BASE_URL`;
+- API key loaded from an environment variable;
+- bounded output tokens and explicit request timeouts.
 
 Temperature controls output randomness, not factual correctness. A higher value
 can increase variation; it is usually worth using a lower value for deterministic
@@ -1054,23 +1004,10 @@ than the answer text, which leads to the response-metadata lesson below.
 
 ### 27.11 What the first successful answer demonstrates
 
-The source document used by the tutorial is about reinforcement learning. The
-question asks which examples it contains, and the retrieved context supports an
-answer covering:
-
-- A newborn antelope learning to stand and run by trial and error
-- Stock trading strategies adapting to market feedback
-- Atari games such as Breakout and Pong
-- Choosing a familiar restaurant versus exploring a new one
-- Reusing a known advertising strategy versus testing another
-- Drilling at a known oil location versus exploring a potentially larger field
-- Repeating a safe game tactic versus trying a new move in Street Fighter
-
-The examples illustrate trial and error, reward, delayed reward, and especially
-the exploration-versus-exploitation trade-off. Their purpose in Chapter 1 is
-not to teach reinforcement learning deeply. They make the RAG result easy to
-inspect: the answer should enumerate facts that visibly exist in the retrieved
-article instead of relying on general model memory.
+The bundled support document states that Atlas acknowledges a priority-one
+incident within 15 minutes. A successful answer returns that fact and cites
+`fixture:atlas-support`. This makes the result easy to inspect: the answer must
+come from visible retrieved evidence rather than general model memory.
 
 ## 28. Understanding the LangChain chat response
 
@@ -1102,11 +1039,8 @@ A `finish_reason` of `stop` normally indicates ordinary completion. Other values
 may indicate length limits, tool calls, content filters, or provider-specific
 behavior.
 
-The printed sample reports `deepseek-chat` in `model_name` while the later code
-snippet configures `glm-4.7-flash-free`. That is a useful reason to trust the
-metadata returned for a real call rather than assuming a configured alias is the
-provider's final model identity. Provider routing and tutorial revisions can
-also make examples differ.
+Trust the model identity returned for a real call rather than assuming a local
+display name or configured alias is the provider's final model identity.
 
 ### Token usage
 
@@ -1164,13 +1098,13 @@ framework defaults.
 
 ## 30. Exercises and learning checkpoints from Chapter 1
 
-### Original exercise 1: extract only the answer
+### Exercise 1: extract only the answer
 
 The LangChain result includes content and metadata. Change the example so it
 prints only the `content` value, while deciding which metadata should be logged
 separately.
 
-### Original exercise 2: change chunk parameters
+### Exercise 2: change chunk parameters
 
 Modify `chunk_size` and `chunk_overlap`. Record:
 
@@ -1182,7 +1116,7 @@ Modify `chunk_size` and `chunk_overlap`. Record:
 
 This turns chunking from a magic default into an observable design decision.
 
-### Original exercise 3: explain the LlamaIndex code
+### Exercise 3: explain the LlamaIndex code
 
 Add comments that identify loading, embedding, indexing, query-engine creation,
 prompt inspection, retrieval, and generation. The goal is to see the four RAG
@@ -1226,13 +1160,13 @@ The most important things I learned are:
 14. Risk controls must match the consequence of a wrong answer; RAG does not
     make legal or decision-making systems safe by itself.
 15. Reproducible environments, protected API keys, and response metadata are
-    part of operating the tutorial correctly.
+    part of operating the application correctly.
 16. Traces and tests are necessary before optimization. Better RAG comes from
     measuring each stage instead of blindly changing the language model.
 
-## 32. Further reading cited in Chapter 1
+## 32. Further reading
 
-These are the conceptual references and example project cited by the chapter:
+These references provide additional conceptual background:
 
 - Genesis, J. (2025), [Retrieval-Augmented Generation: Methods, Applications,
   and Challenges](https://www.researchgate.net/publication/391141346_Retrieval-Augmented_Generation_Methods_Applications_and_Challenges)
@@ -1242,9 +1176,6 @@ These are the conceptual references and example project cited by the chapter:
   NLP Tasks](https://arxiv.org/abs/2005.11401)
 - Gao et al. (2024), [Modular RAG: Transforming RAG Systems into LEGO-like
   Reconfigurable Frameworks](https://arxiv.org/abs/2407.21059)
-- [TinyRAG](https://github.com/KMnO4-zx/TinyRAG), the small open-source example
-  referenced as a beginner-friendly implementation
-
 The implementation walkthrough also uses the official concepts exposed by
 [LangChain](https://python.langchain.com/docs/introduction/) and
 [LlamaIndex](https://docs.llamaindex.ai/en/stable/).

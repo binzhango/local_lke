@@ -4,7 +4,7 @@ Chapters 2-7 move the canonical reliability issues beyond the Chapter 1
 naive-RAG baseline. “Mitigated” means a concrete local control and deterministic
 test exist; it does not mean the underlying research problem is eliminated.
 
-| # | Blog issue | Status after Chapter 7 | Evidence and residual risk |
+| # | Reliability issue | Status after Chapter 7 | Evidence and residual risk |
 |---:|---|---|---|
 | 1 | Corpus lacks the answer | Mitigated | Deterministic sufficiency, one bounded alternate retrieval, and tested abstention prevent unsupported generation. Threshold calibration remains corpus-specific. |
 | 2 | Answer missing from top results | Mitigated | Persistent HNSW dense recall plus PostgreSQL lexical recall, identity-safe RRF, and optional measured cross-encoding rescue rare IDs and semantic variants. Labelled Recall@k fixtures guard the dense profile. |
